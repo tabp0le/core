@@ -52,6 +52,7 @@ class Helper
 
 		$files = array();
 		$id = 0;
+		$dirListing = (rtrim($dir, '/') !== '');
 		foreach ($result as $r) {
 			$i = array();
 			$i['id'] = $id++;
@@ -83,29 +84,5 @@ class Helper
 		usort($files, array('\OCA\Files\Helper', 'fileCmp'));
 
 		return $files;
-	}
-
-	/**
-	 * Splits the given path into a breadcrumb structure.
-	 * @param string $dir path to process
-	 * @return array where each entry is a hash of the absolute
-	 * directory path and its name
-	 */
-	public static function makeBreadcrumb($dir){
-		// Make breadcrumb
-		$pathtohere = '';
-		$breadcrumb = array();
-		foreach (explode('/', $dir) as $i) {
-			if ($i !== '') {
-				if ( preg_match('/^(.+)\.d[0-9]+$/', $i, $match) ) {
-					$name = $match[1];
-				} else {
-					$name = $i;
-				}
-				$pathtohere .= '/' . $i;
-				$breadcrumb[] = array('dir' => $pathtohere, 'name' => $name);
-			}
-		}
-		return $breadcrumb;
 	}
 }
