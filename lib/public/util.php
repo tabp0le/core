@@ -495,4 +495,15 @@ class Util {
 	public static function isValidFileName($file) {
 		return \OC_Util::isValidFileName($file);
 	}
+
+	/**
+	 * Compare two strings to provide a natural sort
+	 * @param $a first string to compare
+	 * @param $b second string to compare
+	 * @return -1 if $b comes before $a, 1 if $a comes before $b
+	 * or 0 if the strings are identical
+	 */
+	public static function naturalSortCompare($a, $b) {
+		return \OC_Util::naturalSortCompare($a, $b);
+	}
 }
