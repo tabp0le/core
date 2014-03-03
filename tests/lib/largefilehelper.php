@@ -9,6 +9,10 @@
 namespace Test;
 
 class LargeFileHelper extends \PHPUnit_Framework_TestCase {
+
+	/**
+	 * @var \OC\LargeFileHelper
+	 */
 	protected $helper;
 
 	public function setUp() {
