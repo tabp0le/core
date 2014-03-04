@@ -29,7 +29,7 @@ class Repair extends Command {
 	protected function configure() {
 		$this
 			->setName('maintenance:repair')
-			->setDescription('set single user mode');
+			->setDescription('repair this instance');
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output) {
