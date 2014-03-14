@@ -536,6 +536,7 @@ class OC {
 					echo $error['hint'] . "\n\n";
 				}
 			} else {
+				OC_Response::setStatus(503);
 				OC_Template::printGuestPage('', 'error', array('errors' => $errors));
 			}
 			exit;
