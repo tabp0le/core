@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Copyright (c) 2012 Bart Visscher <bartv@thisnet.nl>
  * This file is licensed under the Affero General Public License version 3 or
@@ -6,17 +7,27 @@
  * See the COPYING-README file.
  */
 
-class Test_DBSchema extends PHPUnit_Framework_TestCase {
+use OCP\Security\ISecureRandom;
+
+/**
+ * Class Test_DBSchema
+ *
+ * @group DB
+ */
+class Test_DBSchema extends \Test\TestCase {
 	protected $schema_file = 'static://test_db_scheme';
 	protected $schema_file2 = 'static://test_db_scheme2';
 	protected $table1;
 	protected $table2;
 
-	public function setUp() {
+	protected function setUp() {
+		parent::setUp();
+
 		$dbfile = OC::$SERVERROOT.'/tests/data/db_structure.xml';
 		$dbfile2 = OC::$SERVERROOT.'/tests/data/db_structure2.xml';
 
-		$r = '_'.OC_Util::generateRandomBytes(4).'_';
+		$r = '_' . \OC::$server->getSecureRandom()->
+			generate(4, ISecureRandom::CHAR_LOWER . ISecureRandom::CHAR_DIGITS) . '_';
 		$content = file_get_contents( $dbfile );
 		$content = str_replace( '*dbprefix*', '*dbprefix*'.$r, $content );
 		file_put_contents( $this->schema_file, $content );
@@ -24,15 +35,15 @@ class Test_DBSchema extends PHPUnit_Framework_TestCase {
 		$content = str_replace( '*dbprefix*', '*dbprefix*'.$r, $content );
 		file_put_contents( $this->schema_file2, $content );
 
-		$prefix = OC_Config::getValue( "dbtableprefix", "oc_" );
-		
-		$this->table1 = $prefix.$r.'cntcts_addrsbks';
-		$this->table2 = $prefix.$r.'cntcts_cards';
+		$this->table1 = $r.'cntcts_addrsbks';
+		$this->table2 = $r.'cntcts_cards';
 	}
 
-	public function tearDown() {
+	protected function tearDown() {
 		unlink($this->schema_file);
 		unlink($this->schema_file2);
+
+		parent::tearDown();
 	}
 
 	// everything in one test, they depend on each other
@@ -40,6 +51,7 @@ class Test_DBSchema extends PHPUnit_Framework_TestCase {
 	 * @medium
 	 */
 	public function testSchema() {
+		$platform = \OC::$server->getDatabaseConnection()->getDatabasePlatform();
 		$this->doTestSchemaCreating();
 		$this->doTestSchemaChanging();
 		$this->doTestSchemaDumping();
@@ -71,62 +83,23 @@ class Test_DBSchema extends PHPUnit_Framework_TestCase {
 		$this->assertTableNotExist($this->table2);
 	}
 
-	public function tableExist($table) {
-
-		switch (OC_Config::getValue( 'dbtype', 'sqlite' )) {
-			case 'sqlite':
-			case 'sqlite3':
-				$sql = "SELECT name FROM sqlite_master "
-					.  "WHERE type = 'table' AND name = ? "
-					.  "UNION ALL SELECT name FROM sqlite_temp_master "
-					.  "WHERE type = 'table' AND name = ?";
-				$result = \OC_DB::executeAudited($sql, array($table, $table));
-				break;
-			case 'mysql':
-				$sql = 'SHOW TABLES LIKE ?';
-				$result = \OC_DB::executeAudited($sql, array($table));
-				break;
-			case 'pgsql':
-				$sql = 'SELECT tablename AS table_name, schemaname AS schema_name '
-					.  'FROM pg_tables WHERE schemaname NOT LIKE \'pg_%\' '
-					.  'AND schemaname != \'information_schema\' '
-					.  'AND tablename = ?';
-				$result = \OC_DB::executeAudited($sql, array($table));
-				break;
-			case 'oci':
-				$sql = 'SELECT TABLE_NAME FROM USER_TABLES WHERE TABLE_NAME = ?';
-				$result = \OC_DB::executeAudited($sql, array($table));
-				break;
-			case 'mssql':
-				$sql = 'SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = ?';
-				$result = \OC_DB::executeAudited($sql, array($table));
-				break;
-		}
-		
-		$name = $result->fetchOne();
-		if ($name === $table) {
-			return true;
-		} else {
-			return false;
-		}
-	}
-
 	/**
 	 * @param string $table
 	 */
 	public function assertTableExist($table) {
-		$this->assertTrue($this->tableExist($table), 'Table ' . $table . ' does not exist');
+		$this->assertTrue(OC_DB::tableExists($table), 'Table ' . $table . ' does not exist');
 	}
 
 	/**
 	 * @param string $table
 	 */
 	public function assertTableNotExist($table) {
-		$type=OC_Config::getValue( "dbtype", "sqlite" );
-		if( $type == 'sqlite' || $type == 'sqlite3' ) {
+		$platform = \OC::$server->getDatabaseConnection()->getDatabasePlatform();
+		if ($platform instanceof \Doctrine\DBAL\Platforms\SqlitePlatform) {
 			// sqlite removes the tables after closing the DB
+			$this->assertTrue(true);
 		} else {
-			$this->assertFalse($this->tableExist($table), 'Table ' . $table . ' exists.');
+			$this->assertFalse(OC_DB::tableExists($table), 'Table ' . $table . ' exists.');
 		}
 	}
 }

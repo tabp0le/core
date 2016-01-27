@@ -1,22 +1,28 @@
 <?php
 /**
- * ownCloud
+ * @author Andreas Fischer <bantu@owncloud.com>
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Christian Schnidrig <christian.schnidrig@switch.ch>
+ * @author Georg Ehrke <georg@owncloud.com>
+ * @author Michael Gapczynski <GapczynskiM@gmail.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
  *
- * @author Robin Appelman
- * @copyright 2012 Robin Appelman icewind1991@gmail.com
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
  *
  */
 
@@ -33,20 +39,22 @@ class OC_Log_Owncloud {
 	 * Init class data
 	 */
 	public static function init() {
-		$defaultLogFile = OC_Config::getValue("datadirectory", OC::$SERVERROOT.'/data').'/owncloud.log';
-		self::$logFile = OC_Config::getValue("logfile", $defaultLogFile);
+		$systemConfig = \OC::$server->getSystemConfig();
+		$defaultLogFile = $systemConfig->getValue("datadirectory", OC::$SERVERROOT.'/data').'/owncloud.log';
+		self::$logFile = $systemConfig->getValue("logfile", $defaultLogFile);
 
-		/*
-		* Fall back to default log file if specified logfile does not exist
-		* and can not be created. Error suppression is required in order to
-		* not end up in the error handler which will try to log the error.
-		* A better solution (compared to error suppression) would be checking
-		* !is_writable(dirname(self::$logFile)) before touch(), but
-		* is_writable() on directories used to be pretty unreliable on Windows
-		* for at least some time.
-		*/
-		if (!file_exists(self::$logFile) && !@touch(self::$logFile)) {
-			self::$logFile = $defaultLogFile;
+		/**
+		 * Fall back to default log file if specified logfile does not exist
+		 * and can not be created.
+		 */
+		if (!file_exists(self::$logFile)) {
+			if(!is_writable(dirname(self::$logFile))) {
+				self::$logFile = $defaultLogFile;
+			} else {
+				if(!touch(self::$logFile)) {
+					self::$logFile = $defaultLogFile;
+				}
+			}
 		}
 	}
 
@@ -57,29 +65,46 @@ class OC_Log_Owncloud {
 	 * @param int $level
 	 */
 	public static function write($app, $message, $level) {
-		$minLevel=min(OC_Config::getValue( "loglevel", OC_Log::WARN ), OC_Log::ERROR);
-		if($level>=$minLevel) {
-			// default to ISO8601
-			$format = OC_Config::getValue('logdateformat', 'c');
-			$logtimezone=OC_Config::getValue( "logtimezone", 'UTC' );
-			try {
-				$timezone = new DateTimeZone($logtimezone);
-			} catch (Exception $e) {
-				$timezone = new DateTimeZone('UTC');
-			}
+		$config = \OC::$server->getSystemConfig();
+
+		// default to ISO8601
+		$format = $config->getValue('logdateformat', 'c');
+		$logTimeZone = $config->getValue( "logtimezone", 'UTC' );
+		try {
+			$timezone = new DateTimeZone($logTimeZone);
+		} catch (Exception $e) {
+			$timezone = new DateTimeZone('UTC');
+		}
+		$time = DateTime::createFromFormat("U.u", number_format(microtime(true), 4, ".", ""), $timezone);
+		if ($time === false) {
 			$time = new DateTime(null, $timezone);
-			// remove username/passswords from URLs before writing the to the log file
-			$entry=array('app'=>$app, 'message'=>$message, 'level'=>$level, 'time'=> $time->format($format));
-			$entry = json_encode($entry);
-			$handle = @fopen(self::$logFile, 'a');
-			@chmod(self::$logFile, 0640);
-			if ($handle) {
-				fwrite($handle, $entry."\n");
-				fclose($handle);
-			} else {
-				// Fall back to error_log
-				error_log($entry);
-			}
+		}
+		$request = \OC::$server->getRequest();
+		$reqId = $request->getId();
+		$remoteAddr = $request->getRemoteAddress();
+		// remove username/passwords from URLs before writing the to the log file
+		$time = $time->format($format);
+		$minLevel=min($config->getValue( "loglevel", \OCP\Util::WARN ), \OCP\Util::ERROR);
+		if($minLevel == \OCP\Util::DEBUG) {
+			$url = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '--';
+			$method = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : '--';
+			$entry = compact('reqId', 'remoteAddr', 'app', 'message', 'level', 'time', 'method', 'url');
+		}
+		else {
+			$entry = compact('reqId', 'remoteAddr', 'app', 'message', 'level', 'time');
+		}
+		$entry = json_encode($entry);
+		$handle = @fopen(self::$logFile, 'a');
+		@chmod(self::$logFile, 0640);
+		if ($handle) {
+			fwrite($handle, $entry."\n");
+			fclose($handle);
+		} else {
+			// Fall back to error_log
+			error_log($entry);
+		}
+		if (php_sapi_name() === 'cli-server') {
+			error_log($message, 4);
 		}
 	}
 
@@ -91,7 +116,7 @@ class OC_Log_Owncloud {
 	 */
 	public static function getEntries($limit=50, $offset=0) {
 		self::init();
-		$minLevel=OC_Config::getValue( "loglevel", OC_Log::WARN );
+		$minLevel = \OC::$server->getSystemConfig()->getValue("loglevel", \OCP\Util::WARN);
 		$entries = array();
 		$handle = @fopen(self::$logFile, 'rb');
 		if ($handle) {
@@ -101,7 +126,7 @@ class OC_Log_Owncloud {
 			$entriesCount = 0;
 			$lines = 0;
 			// Loop through each character of the file looking for new lines
-			while ($pos >= 0 && $entriesCount < $limit) {
+			while ($pos >= 0 && ($limit === null ||$entriesCount < $limit)) {
 				fseek($handle, $pos);
 				$ch = fgetc($handle);
 				if ($ch == "\n" || $pos == 0) {
@@ -130,5 +155,12 @@ class OC_Log_Owncloud {
 			fclose($handle);
 		}
 		return $entries;
+	}
+
+	/**
+	 * @return string
+	 */
+	public static function getLogFilePath() {
+		return self::$logFile;
 	}
 }

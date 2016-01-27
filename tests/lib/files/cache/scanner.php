@@ -7,8 +7,16 @@
  */
 
 namespace Test\Files\Cache;
+use OC\Files\Cache\CacheEntry;
 
-class Scanner extends \PHPUnit_Framework_TestCase {
+/**
+ * Class Scanner
+ *
+ * @group DB
+ *
+ * @package Test\Files\Cache
+ */
+class Scanner extends \Test\TestCase {
 	/**
 	 * @var \OC\Files\Storage\Storage $storage
 	 */
@@ -24,19 +32,20 @@ class Scanner extends \PHPUnit_Framework_TestCase {
 	 */
 	private $cache;
 
-	function setUp() {
+	protected function setUp() {
+		parent::setUp();
+
 		$this->storage = new \OC\Files\Storage\Temporary(array());
 		$this->scanner = new \OC\Files\Cache\Scanner($this->storage);
 		$this->cache = new \OC\Files\Cache\Cache($this->storage);
 	}
 
-	function tearDown() {
+	protected function tearDown() {
 		if ($this->cache) {
-			$ids = $this->cache->getAll();
-			$permissionsCache = $this->storage->getPermissionsCache();
-			$permissionsCache->removeMultiple($ids, \OC_User::getUser());
 			$this->cache->clear();
 		}
+
+		parent::tearDown();
 	}
 
 	function testFile() {
@@ -195,13 +204,13 @@ class Scanner extends \PHPUnit_Framework_TestCase {
 
 		$this->scanner->scan('');
 		$this->assertTrue($this->cache->inCache('folder/bar.txt'));
-		$this->storage->unlink('/folder');
+		$this->storage->rmdir('/folder');
 		$this->scanner->scan('', \OC\Files\Cache\Scanner::SCAN_SHALLOW);
 		$this->assertFalse($this->cache->inCache('folder'));
 		$this->assertFalse($this->cache->inCache('folder/bar.txt'));
 	}
 
-	public function testScanRemovedFile(){
+	public function testScanRemovedFile() {
 		$this->fillTestFolders();
 
 		$this->scanner->scan('');
@@ -218,6 +227,7 @@ class Scanner extends \PHPUnit_Framework_TestCase {
 
 		// manipulate etag to simulate an empty etag
 		$this->scanner->scan('', \OC\Files\Cache\Scanner::SCAN_SHALLOW, \OC\Files\Cache\Scanner::REUSE_ETAG);
+		/** @var CacheEntry $data0 */
 		$data0 = $this->cache->get('folder/bar.txt');
 		$this->assertInternalType('string', $data0['etag']);
 		$data1 = $this->cache->get('folder');
@@ -225,7 +235,7 @@ class Scanner extends \PHPUnit_Framework_TestCase {
 		$data2 = $this->cache->get('');
 		$this->assertInternalType('string', $data2['etag']);
 		$data0['etag'] = '';
-		$this->cache->put('folder/bar.txt', $data0);
+		$this->cache->put('folder/bar.txt', $data0->getData());
 
 		// rescan
 		$this->scanner->scan('folder/bar.txt', \OC\Files\Cache\Scanner::SCAN_SHALLOW, \OC\Files\Cache\Scanner::REUSE_ETAG);
@@ -234,13 +244,76 @@ class Scanner extends \PHPUnit_Framework_TestCase {
 		$newData0 = $this->cache->get('folder/bar.txt');
 		$this->assertInternalType('string', $newData0['etag']);
 		$this->assertNotEmpty($newData0['etag']);
-		
-		$newData1 = $this->cache->get('folder');
-		$this->assertInternalType('string', $newData1['etag']);
-		$this->assertNotSame($data1['etag'], $newData1['etag']);
-		
-		$newData2 = $this->cache->get('');
-		$this->assertInternalType('string', $newData2['etag']);
-		$this->assertNotSame($data2['etag'], $newData2['etag']);
 	}
+
+	public function testRepairParent() {
+		$this->fillTestFolders();
+		$this->scanner->scan('');
+		$this->assertTrue($this->cache->inCache('folder/bar.txt'));
+		$oldFolderId = $this->cache->getId('folder');
+
+		// delete the folder without removing the childs
+		$sql = 'DELETE FROM `*PREFIX*filecache` WHERE `fileid` = ?';
+		\OC_DB::executeAudited($sql, array($oldFolderId));
+
+		$cachedData = $this->cache->get('folder/bar.txt');
+		$this->assertEquals($oldFolderId, $cachedData['parent']);
+		$this->assertFalse($this->cache->inCache('folder'));
+
+		$this->scanner->scan('');
+
+		$this->assertTrue($this->cache->inCache('folder'));
+		$newFolderId = $this->cache->getId('folder');
+		$this->assertNotEquals($oldFolderId, $newFolderId);
+
+		$cachedData = $this->cache->get('folder/bar.txt');
+		$this->assertEquals($newFolderId, $cachedData['parent']);
+	}
+
+	public function testRepairParentShallow() {
+		$this->fillTestFolders();
+		$this->scanner->scan('');
+		$this->assertTrue($this->cache->inCache('folder/bar.txt'));
+		$oldFolderId = $this->cache->getId('folder');
+
+		// delete the folder without removing the childs
+		$sql = 'DELETE FROM `*PREFIX*filecache` WHERE `fileid` = ?';
+		\OC_DB::executeAudited($sql, array($oldFolderId));
+
+		$cachedData = $this->cache->get('folder/bar.txt');
+		$this->assertEquals($oldFolderId, $cachedData['parent']);
+		$this->assertFalse($this->cache->inCache('folder'));
+
+		$this->scanner->scan('folder', \OC\Files\Cache\Scanner::SCAN_SHALLOW);
+
+		$this->assertTrue($this->cache->inCache('folder'));
+		$newFolderId = $this->cache->getId('folder');
+		$this->assertNotEquals($oldFolderId, $newFolderId);
+
+		$cachedData = $this->cache->get('folder/bar.txt');
+		$this->assertEquals($newFolderId, $cachedData['parent']);
+	}
+
+	/**
+	 * @dataProvider dataTestIsPartialFile
+	 *
+	 * @param string $path
+	 * @param bool $expected
+	 */
+	public function testIsPartialFile($path, $expected) {
+		$this->assertSame($expected,
+			$this->scanner->isPartialFile($path)
+		);
+	}
+
+	public function dataTestIsPartialFile() {
+		return [
+			['foo.txt.part', true],
+			['/sub/folder/foo.txt.part', true],
+			['/sub/folder.part/foo.txt', true],
+			['foo.txt', false],
+			['/sub/folder/foo.txt', false],
+		];
+	}
+
 }

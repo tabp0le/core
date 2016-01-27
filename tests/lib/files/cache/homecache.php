@@ -43,7 +43,14 @@ class DummyUser extends \OC\User\User {
 	}
 }
 
-class HomeCache extends \PHPUnit_Framework_TestCase {
+/**
+ * Class HomeCache
+ *
+ * @group DB
+ *
+ * @package Test\Files\Cache
+ */
+class HomeCache extends \Test\TestCase {
 	/**
 	 * @var \OC\Files\Storage\Home $storage
 	 */
@@ -59,8 +66,10 @@ class HomeCache extends \PHPUnit_Framework_TestCase {
 	 */
 	private $user;
 
-	public function setUp() {
-		$this->user = new DummyUser('foo', \OC_Helper::tmpFolder());
+	protected function setUp() {
+		parent::setUp();
+
+		$this->user = new DummyUser('foo', \OC::$server->getTempManager()->getTemporaryFolder());
 		$this->storage = new \OC\Files\Storage\Home(array('user' => $this->user));
 		$this->cache = $this->storage->getCache();
 	}
@@ -90,7 +99,6 @@ class HomeCache extends \PHPUnit_Framework_TestCase {
 
 		// check that files and root size ignored the unknown sizes
 		$this->assertEquals(1000, $this->cache->calculateFolderSize('files'));
-		$this->assertEquals(1000, $this->cache->calculateFolderSize(''));
 
 		// clean up
 		$this->cache->remove('');

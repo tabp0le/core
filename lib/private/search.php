@@ -1,89 +1,129 @@
 <?php
 /**
- * ownCloud
+ * @author Andrew Brown <andrew@casabrown.com>
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Jörn Friedrich Dreyer <jfd@butonic.de>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
  *
- * @author Frank Karlitschek
- * @copyright 2012 Frank Karlitschek frank@owncloud.org
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
  *
  */
 
+namespace OC;
+use OCP\Search\PagedProvider;
+use OCP\Search\Provider;
+use OCP\ISearch;
 
 /**
- * provides an interface to all search providers
+ * Provide an interface to all search providers
  */
-class OC_Search{
-	static private $providers=array();
-	static private $registeredProviders=array();
+class Search implements ISearch {
+
+	private $providers = array();
+	private $registeredProviders = array();
 
 	/**
-	 * remove all registered search providers
+	 * Search all providers for $query
+	 * @param string $query
+	 * @param string[] $inApps optionally limit results to the given apps
+	 * @return array An array of OC\Search\Result's
 	 */
-	public static function clearProviders() {
-		self::$providers=array();
-		self::$registeredProviders=array();
+	public function search($query, array $inApps = array()) {
+		// old apps might assume they get all results, so we set size 0
+		return $this->searchPaged($query, $inApps, 1, 0);
 	}
 
 	/**
-	 * register a new search provider to be used
+	 * Search all providers for $query
+	 * @param string $query
+	 * @param string[] $inApps optionally limit results to the given apps
+	 * @param int $page pages start at page 1
+	 * @param int $size, 0 = all
+	 * @return array An array of OC\Search\Result's
 	 */
-	public static function registerProvider($class, $options=array()) {
-		self::$registeredProviders[]=array('class'=>$class, 'options'=>$options);
-	}
-
-	/**
-	 * search all provider for $query
-	 * @param string query
-	 * @return array An array of OC_Search_Result's
-	 */
-	public static function search($query) {
-		self::initProviders();
-		$results=array();
-		foreach(self::$providers as $provider) {
-			$results=array_merge($results, $provider->search($query));
+	public function searchPaged($query, array $inApps = array(), $page = 1, $size = 30) {
+		$this->initProviders();
+		$results = array();
+		foreach($this->providers as $provider) {
+			/** @var $provider Provider */
+			if ( ! $provider->providesResultsFor($inApps) ) {
+				continue;
+			}
+			if ($provider instanceof PagedProvider) {
+				$results = array_merge($results, $provider->searchPaged($query, $page, $size));
+			} else if ($provider instanceof Provider) {
+				$providerResults = $provider->search($query);
+				if ($size > 0) {
+					$slicedResults = array_slice($providerResults, ($page - 1) * $size, $size);
+					$results = array_merge($results, $slicedResults);
+				} else {
+					$results = array_merge($results, $providerResults);
+				}
+			} else {
+				\OC::$server->getLogger()->warning('Ignoring Unknown search provider', array('provider' => $provider));
+			}
 		}
 		return $results;
 	}
 
 	/**
-	 * remove an existing search provider
-	 * @param string $provider class name of a OC_Search_Provider
+	 * Remove all registered search providers
 	 */
-	public static function removeProvider($provider) {
-		self::$registeredProviders = array_filter(
-				self::$registeredProviders,
-				function ($element) use ($provider) {
-					return ($element['class'] != $provider);
-				}
-		);
-		// force regeneration of providers on next search
-		self::$providers=array();
+	public function clearProviders() {
+		$this->providers = array();
+		$this->registeredProviders = array();
 	}
-
 
 	/**
-	 * create instances of all the registered search providers
+	 * Remove one existing search provider
+	 * @param string $provider class name of a OC\Search\Provider
 	 */
-	private static function initProviders() {
-		if(count(self::$providers)>0) {
+	public function removeProvider($provider) {
+		$this->registeredProviders = array_filter(
+			$this->registeredProviders,
+			function ($element) use ($provider) {
+				return ($element['class'] != $provider);
+			}
+		);
+		// force regeneration of providers on next search
+		$this->providers = array();
+	}
+
+	/**
+	 * Register a new search provider to search with
+	 * @param string $class class name of a OC\Search\Provider
+	 * @param array $options optional
+	 */
+	public function registerProvider($class, array $options = array()) {
+		$this->registeredProviders[] = array('class' => $class, 'options' => $options);
+	}
+
+	/**
+	 * Create instances of all the registered search providers
+	 */
+	private function initProviders() {
+		if( ! empty($this->providers) ) {
 			return;
 		}
-		foreach(self::$registeredProviders as $provider) {
-			$class=$provider['class'];
-			$options=$provider['options'];
-			self::$providers[]=new $class($options);
+		foreach($this->registeredProviders as $provider) {
+			$class = $provider['class'];
+			$options = $provider['options'];
+			$this->providers[] = new $class($options);
 		}
 	}
+
 }

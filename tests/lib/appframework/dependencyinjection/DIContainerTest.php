@@ -5,8 +5,8 @@
  *
  * @author Bernhard Posselt
  * @author Morris Jobke
- * @copyright 2012 Bernhard Posselt nukeawhale@gmail.com
- * @copyright 2013 Morris Jobke morris.jobke@gmail.com
+ * @copyright 2012 Bernhard Posselt <dev@bernhard-posselt.com>
+ * @copyright 2013 Morris Jobke <morris.jobke@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
@@ -29,13 +29,16 @@ namespace OC\AppFramework\DependencyInjection;
 use \OC\AppFramework\Http\Request;
 
 
-class DIContainerTest extends \PHPUnit_Framework_TestCase {
+class DIContainerTest extends \Test\TestCase {
 
 	private $container;
 	private $api;
 
 	protected function setUp(){
-		$this->container = new DIContainer('name');
+		parent::setUp();
+		$this->container = $this->getMock('OC\AppFramework\DependencyInjection\DIContainer',
+				['isAdminUser'], ['name']
+		);
 		$this->api = $this->getMock('OC\AppFramework\Core\API', array(), array('hi'));
 	}
 
@@ -70,7 +73,11 @@ class DIContainerTest extends \PHPUnit_Framework_TestCase {
 
 
 	public function testMiddlewareDispatcherIncludesSecurityMiddleware(){
-		$this->container['Request'] = new Request();
+		$this->container['Request'] = new Request(
+			['method' => 'GET'],
+			$this->getMock('\OCP\Security\ISecureRandom'),
+			$this->getMock('\OCP\IConfig')
+		);
 		$security = $this->container['SecurityMiddleware'];
 		$dispatcher = $this->container['MiddlewareDispatcher'];
 

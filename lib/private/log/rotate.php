@@ -1,9 +1,24 @@
 <?php
 /**
- * Copyright (c) 2013 Bart Visscher <bartv@thisnet.nl>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\Log;
@@ -17,7 +32,7 @@ namespace OC\Log;
 class Rotate extends \OC\BackgroundJob\Job {
 	private $max_log_size;
 	public function run($logFile) {
-		$this->max_log_size = \OC_Config::getValue('log_rotate_size', false);
+		$this->max_log_size = \OC::$server->getConfig()->getSystemValue('log_rotate_size', false);
 		if ($this->max_log_size) {
 			$filesize = @filesize($logFile);
 			if ($filesize >= $this->max_log_size) {
@@ -30,6 +45,6 @@ class Rotate extends \OC\BackgroundJob\Job {
 		$rotatedLogfile = $logfile.'.1';
 		rename($logfile, $rotatedLogfile);
 		$msg = 'Log file "'.$logfile.'" was over '.$this->max_log_size.' bytes, moved to "'.$rotatedLogfile.'"';
-		\OC_Log::write('OC\Log\Rotate', $msg, \OC_Log::WARN);
+		\OCP\Util::writeLog('OC\Log\Rotate', $msg, \OCP\Util::WARN);
 	}
 }

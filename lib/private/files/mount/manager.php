@@ -1,33 +1,71 @@
 <?php
 /**
- * Copyright (c) 2012 Robin Appelman <icewind@owncloud.com>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Björn Schießle <schiessle@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\Files\Mount;
 
 use \OC\Files\Filesystem;
+use OCP\Files\Mount\IMountManager;
+use OCP\Files\Mount\IMountPoint;
 
-class Manager {
+class Manager implements IMountManager {
 	/**
-	 * @var Mount[]
+	 * @var MountPoint[]
 	 */
 	private $mounts = array();
 
 	/**
-	 * @param Mount $mount
+	 * @param IMountPoint $mount
 	 */
-	public function addMount($mount) {
+	public function addMount(IMountPoint $mount) {
 		$this->mounts[$mount->getMountPoint()] = $mount;
+	}
+
+	/**
+	 * @param string $mountPoint
+	 */
+	public function removeMount($mountPoint) {
+		$mountPoint = Filesystem::normalizePath($mountPoint);
+		if (strlen($mountPoint) > 1) {
+			$mountPoint .= '/';
+		}
+		unset($this->mounts[$mountPoint]);
+	}
+
+	/**
+	 * @param string $mountPoint
+	 * @param string $target
+	 */
+	public function moveMount($mountPoint, $target){
+		$this->mounts[$target] = $this->mounts[$mountPoint];
+		unset($this->mounts[$mountPoint]);
 	}
 
 	/**
 	 * Find the mount for $path
 	 *
-	 * @param $path
-	 * @return Mount
+	 * @param string $path
+	 * @return MountPoint
 	 */
 	public function find($path) {
 		\OC_Util::setupFS();
@@ -54,8 +92,8 @@ class Manager {
 	/**
 	 * Find all mounts in $path
 	 *
-	 * @param $path
-	 * @return Mount[]
+	 * @param string $path
+	 * @return MountPoint[]
 	 */
 	public function findIn($path) {
 		\OC_Util::setupFS();
@@ -79,7 +117,7 @@ class Manager {
 	 * Find mounts by storage id
 	 *
 	 * @param string $id
-	 * @return Mount[]
+	 * @return MountPoint[]
 	 */
 	public function findByStorageId($id) {
 		\OC_Util::setupFS();
@@ -96,7 +134,7 @@ class Manager {
 	}
 
 	/**
-	 * @return Mount[]
+	 * @return MountPoint[]
 	 */
 	public function getAll() {
 		return $this->mounts;
@@ -105,8 +143,8 @@ class Manager {
 	/**
 	 * Find mounts by numeric storage id
 	 *
-	 * @param string $id
-	 * @return Mount[]
+	 * @param int $id
+	 * @return MountPoint[]
 	 */
 	public function findByNumericId($id) {
 		$storageId = \OC\Files\Cache\Storage::getStorageId($id);

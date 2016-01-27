@@ -1,25 +1,59 @@
 <?php
 /**
- * Copyright (c) 2012 Bart Visscher <bartv@thisnet.nl>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Jörn Friedrich Dreyer <jfd@butonic.de>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Scrutinizer Auto-Fixer <auto-fixer@scrutinizer-ci.com>
+ * @author tbelau666 <thomas.belau@gmx.de>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
-class OC_DB_MDB2SchemaWriter {
+namespace OC\DB;
+
+use Doctrine\DBAL\Schema\Column;
+use Doctrine\DBAL\Schema\Index;
+
+class MDB2SchemaWriter {
 
 	/**
 	 * @param string $file
-	 * @param \Doctrine\DBAL\Schema\AbstractSchemaManager $sm
+	 * @param \OC\DB\Connection $conn
 	 * @return bool
 	 */
-	static public function saveSchemaToFile($file, $sm) {
-		$xml = new SimpleXMLElement('<database/>');
-		$xml->addChild('name', OC_Config::getValue( "dbname", "owncloud" ));
+	static public function saveSchemaToFile($file, \OC\DB\Connection $conn) {
+		$config = \OC::$server->getConfig();
+
+		$xml = new \SimpleXMLElement('<database/>');
+		$xml->addChild('name', $config->getSystemValue('dbname', 'owncloud'));
 		$xml->addChild('create', 'true');
 		$xml->addChild('overwrite', 'false');
 		$xml->addChild('charset', 'utf8');
-		foreach ($sm->listTables() as $table) {
+
+		// FIX ME: bloody work around
+		if ($config->getSystemValue('dbtype', 'sqlite') === 'oci') {
+			$filterExpression = '/^"' . preg_quote($conn->getPrefix()) . '/';
+		} else {
+			$filterExpression = '/^' . preg_quote($conn->getPrefix()) . '/';
+		}
+		$conn->getConfiguration()->setFilterSchemaAssetsExpression($filterExpression);
+
+		foreach ($conn->getSchemaManager()->listTables() as $table) {
 			self::saveTable($table, $xml->addChild('table'));
 		}
 		file_put_contents($file, $xml->asXML());
@@ -27,7 +61,8 @@ class OC_DB_MDB2SchemaWriter {
 	}
 
 	/**
-	 * @param SimpleXMLElement $xml
+	 * @param \Doctrine\DBAL\Schema\Table $table
+	 * @param \SimpleXMLElement $xml
 	 */
 	private static function saveTable($table, $xml) {
 		$xml->addChild('name', $table->getName());
@@ -52,7 +87,8 @@ class OC_DB_MDB2SchemaWriter {
 	}
 
 	/**
-	 * @param SimpleXMLElement $xml
+	 * @param Column $column
+	 * @param \SimpleXMLElement $xml
 	 */
 	private static function saveColumn($column, $xml) {
 		$xml->addChild('name', $column->getName());
@@ -118,7 +154,8 @@ class OC_DB_MDB2SchemaWriter {
 	}
 
 	/**
-	 * @param SimpleXMLElement $xml
+	 * @param Index $index
+	 * @param \SimpleXMLElement $xml
 	 */
 	private static function saveIndex($index, $xml) {
 		$xml->addChild('name', $index->getName());

@@ -19,8 +19,6 @@
 * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-OC::$CLASSPATH['OCP\Share_Backend']='lib/public/share.php';
-
 class Test_Share_Backend implements OCP\Share_Backend {
 
 	const FORMAT_SOURCE = 0;
@@ -29,28 +27,46 @@ class Test_Share_Backend implements OCP\Share_Backend {
 
 	private $testItem1 = 'test.txt';
 	private $testItem2 = 'share.txt';
+	private $testId = 1;
 
 	public function isValidSource($itemSource, $uidOwner) {
-		if ($itemSource == $this->testItem1 || $itemSource == $this->testItem2) {
+		if ($itemSource == $this->testItem1 || $itemSource == $this->testItem2 || $itemSource == 1) {
 			return true;
 		}
 	}
 
 	public function generateTarget($itemSource, $shareWith, $exclude = null) {
 		// Always make target be test.txt to cause conflicts
-		$target = 'test.txt';
-		if (isset($exclude)) {
+
+		if (substr($itemSource, 0, strlen('test')) !== 'test') {
+			$target = "test.txt";
+		} else {
+			$target = $itemSource;
+		}
+
+
+		$shares = \OCP\Share::getItemsSharedWithUser('test', $shareWith);
+
+		$knownTargets = array();
+		foreach ($shares as $share) {
+			$knownTargets[] = $share['item_target'];
+		}
+
+
+		if (in_array($target, $knownTargets)) {
 			$pos = strrpos($target, '.');
 			$name = substr($target, 0, $pos);
 			$ext = substr($target, $pos);
 			$append = '';
 			$i = 1;
-			while (in_array($name.$append.$ext, $exclude)) {
+			while (in_array($name.$append.$ext, $knownTargets)) {
 				$append = $i;
 				$i++;
 			}
 			$target = $name.$append.$ext;
+
 		}
+
 		return $target;
 	}
 
@@ -66,6 +82,10 @@ class Test_Share_Backend implements OCP\Share_Backend {
 			}
 		}
 		return $testItems;
+	}
+
+	public function isShareTypeAllowed($shareType) {
+		return true;
 	}
 
 }

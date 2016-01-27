@@ -1,22 +1,26 @@
 <?php
 /**
- * ownCloud
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ * @author Tobia De Koninck <tobia@ledfan.be>
  *
- * @author Thomas Müller
- * @copyright 2013 Thomas Müller thomas.mueller@tmit.eu
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
  *
  */
 
@@ -31,13 +35,19 @@ namespace OC {
 		 * @param string $pattern which should match within the $searchProperties
 		 * @param array $searchProperties defines the properties within the query pattern should match
 		 * @param array $options - for future use. One should always have options!
-		 * @return array of contacts which are arrays of key-value-pairs
+		 * @return array an array of contacts which are arrays of key-value-pairs
 		 */
 		public function search($pattern, $searchProperties = array(), $options = array()) {
+			$this->loadAddressBooks();
 			$result = array();
-			foreach($this->address_books as $address_book) {
-				$r = $address_book->search($pattern, $searchProperties, $options);
-				$result = array_merge($result, $r);
+			foreach($this->addressBooks as $addressBook) {
+				$r = $addressBook->search($pattern, $searchProperties, $options);
+				$contacts = array();
+				foreach($r as $c){
+					$c['addressbook-key'] = $addressBook->getKey();
+					$contacts[] = $c;
+				}
+				$result = array_merge($result, $contacts);
 			}
 
 			return $result;
@@ -47,18 +57,20 @@ namespace OC {
 		 * This function can be used to delete the contact identified by the given id
 		 *
 		 * @param object $id the unique identifier to a contact
-		 * @param $address_book_key
+		 * @param string $addressBookKey identifier of the address book in which the contact shall be deleted
 		 * @return bool successful or not
 		 */
-		public function delete($id, $address_book_key) {
-			if (!array_key_exists($address_book_key, $this->address_books))
+		public function delete($id, $addressBookKey) {
+			$addressBook = $this->getAddressBook($addressBookKey);
+			if (!$addressBook) {
 				return null;
+			}
 
-			$address_book = $this->address_books[$address_book_key];
-			if ($address_book->getPermissions() & \OCP\PERMISSION_DELETE)
-				return null;
+			if ($addressBook->getPermissions() & \OCP\Constants::PERMISSION_DELETE) {
+				return $addressBook->delete($id);
+			}
 
-			return $address_book->delete($id);
+			return null;
 		}
 
 		/**
@@ -66,19 +78,20 @@ namespace OC {
 		 * Otherwise the contact will be updated by replacing the entire data set.
 		 *
 		 * @param array $properties this array if key-value-pairs defines a contact
-		 * @param $address_book_key string to identify the address book in which the contact shall be created or updated
+		 * @param string $addressBookKey identifier of the address book in which the contact shall be created or updated
 		 * @return array representing the contact just created or updated
 		 */
-		public function createOrUpdate($properties, $address_book_key) {
-
-			if (!array_key_exists($address_book_key, $this->address_books))
+		public function createOrUpdate($properties, $addressBookKey) {
+			$addressBook = $this->getAddressBook($addressBookKey);
+			if (!$addressBook) {
 				return null;
+			}
 
-			$address_book = $this->address_books[$address_book_key];
-			if ($address_book->getPermissions() & \OCP\PERMISSION_CREATE)
-				return null;
+			if ($addressBook->getPermissions() & \OCP\Constants::PERMISSION_CREATE) {
+				return $addressBook->createOrUpdate($properties);
+			}
 
-			return $address_book->createOrUpdate($properties);
+			return null;
 		}
 
 		/**
@@ -87,30 +100,31 @@ namespace OC {
 		 * @return bool true if enabled, false if not
 		 */
 		public function isEnabled() {
-			return !empty($this->address_books);
+			return !empty($this->addressBooks) || !empty($this->addressBookLoaders);
 		}
 
 		/**
-		 * @param \OCP\IAddressBook $address_book
+		 * @param \OCP\IAddressBook $addressBook
 		 */
-		public function registerAddressBook(\OCP\IAddressBook $address_book) {
-			$this->address_books[$address_book->getKey()] = $address_book;
+		public function registerAddressBook(\OCP\IAddressBook $addressBook) {
+			$this->addressBooks[$addressBook->getKey()] = $addressBook;
 		}
 
 		/**
-		 * @param \OCP\IAddressBook $address_book
+		 * @param \OCP\IAddressBook $addressBook
 		 */
-		public function unregisterAddressBook(\OCP\IAddressBook $address_book) {
-			unset($this->address_books[$address_book->getKey()]);
+		public function unregisterAddressBook(\OCP\IAddressBook $addressBook) {
+			unset($this->addressBooks[$addressBook->getKey()]);
 		}
 
 		/**
 		 * @return array
 		 */
 		public function getAddressBooks() {
+			$this->loadAddressBooks();
 			$result = array();
-			foreach($this->address_books as $address_book) {
-				$result[$address_book->getKey()] = $address_book->getDisplayName();
+			foreach($this->addressBooks as $addressBook) {
+				$result[$addressBook->getKey()] = $addressBook->getDisplayName();
 			}
 
 			return $result;
@@ -120,26 +134,56 @@ namespace OC {
 		 * removes all registered address book instances
 		 */
 		public function clear() {
-			$this->address_books = array();
+			$this->addressBooks = array();
+			$this->addressBookLoaders = array();
 		}
 
 		/**
 		 * @var \OCP\IAddressBook[] which holds all registered address books
 		 */
-		private $address_books = array();
+		private $addressBooks = array();
+
+		/**
+		 * @var \Closure[] to call to load/register address books
+		 */
+		private $addressBookLoaders = array();
 
 		/**
 		 * In order to improve lazy loading a closure can be registered which will be called in case
 		 * address books are actually requested
 		 *
-		 * @param string $key
 		 * @param \Closure $callable
 		 */
-		function register($key, \Closure $callable)
+		public function register(\Closure $callable)
 		{
-			//
-			//TODO: implement me
-			//
+			$this->addressBookLoaders[] = $callable;
+		}
+
+		/**
+		 * Get (and load when needed) the address book for $key
+		 *
+		 * @param string $addressBookKey
+		 * @return \OCP\IAddressBook
+		 */
+		protected function getAddressBook($addressBookKey)
+		{
+			$this->loadAddressBooks();
+			if (!array_key_exists($addressBookKey, $this->addressBooks)) {
+				return null;
+			}
+
+			return $this->addressBooks[$addressBookKey];
+		}
+
+		/**
+		 * Load all address books registered with 'register'
+		 */
+		protected function loadAddressBooks()
+		{
+			foreach($this->addressBookLoaders as $callable) {
+				$callable($this);
+			}
+			$this->addressBookLoaders = array();
 		}
 	}
 }

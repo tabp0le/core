@@ -1,18 +1,40 @@
 <?php
 /**
- * Copyright (c) 2013 Bart Visscher <bartv@thisnet.nl>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\DB;
+use Doctrine\DBAL\DBALException;
 use Doctrine\DBAL\Driver;
 use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Cache\QueryCacheProfile;
 use Doctrine\Common\EventManager;
+use OC\DB\QueryBuilder\QueryBuilder;
+use OCP\DB\QueryBuilder\IQueryBuilder;
+use OCP\IDBConnection;
+use OCP\PreconditionNotMetException;
 
-class Connection extends \Doctrine\DBAL\Connection {
+class Connection extends \Doctrine\DBAL\Connection implements IDBConnection {
 	/**
 	 * @var string $tablePrefix
 	 */
@@ -23,12 +45,71 @@ class Connection extends \Doctrine\DBAL\Connection {
 	 */
 	protected $adapter;
 
-	/**
-	 * @var \Doctrine\DBAL\Driver\Statement[] $preparedQueries
-	 */
-	protected $preparedQueries = array();
+	public function connect() {
+		try {
+			return parent::connect();
+		} catch (DBALException $e) {
+			// throw a new exception to prevent leaking info from the stacktrace
+			throw new DBALException('Failed to connect to the database: ' . $e->getMessage(), $e->getCode());
+		}
+	}
 
-	protected $cachingQueryStatementEnabled = true;
+	/**
+	 * Returns a QueryBuilder for the connection.
+	 *
+	 * @return \OCP\DB\QueryBuilder\IQueryBuilder
+	 */
+	public function getQueryBuilder() {
+		return new QueryBuilder($this);
+	}
+
+	/**
+	 * Gets the QueryBuilder for the connection.
+	 *
+	 * @return \Doctrine\DBAL\Query\QueryBuilder
+	 * @deprecated please use $this->getQueryBuilder() instead
+	 */
+	public function createQueryBuilder() {
+		$backtrace = $this->getCallerBacktrace();
+		\OC::$server->getLogger()->debug('Doctrine QueryBuilder retrieved in {backtrace}', ['app' => 'core', 'backtrace' => $backtrace]);
+		return parent::createQueryBuilder();
+	}
+
+	/**
+	 * Gets the ExpressionBuilder for the connection.
+	 *
+	 * @return \Doctrine\DBAL\Query\Expression\ExpressionBuilder
+	 * @deprecated please use $this->getQueryBuilder()->expr() instead
+	 */
+	public function getExpressionBuilder() {
+		$backtrace = $this->getCallerBacktrace();
+		\OC::$server->getLogger()->debug('Doctrine ExpressionBuilder retrieved in {backtrace}', ['app' => 'core', 'backtrace' => $backtrace]);
+		return parent::getExpressionBuilder();
+	}
+
+	/**
+	 * Get the file and line that called the method where `getCallerBacktrace()` was used
+	 *
+	 * @return string
+	 */
+	protected function getCallerBacktrace() {
+		$traces = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 2);
+
+		// 0 is the method where we use `getCallerBacktrace`
+		// 1 is the target method which uses the method we want to log
+		if (isset($traces[1])) {
+			return $traces[1]['file'] . ':' . $traces[1]['line'];
+		}
+
+		return '';
+	}
+
+	/**
+	 * @return string
+	 */
+	public function getPrefix() {
+		return $this->tablePrefix;
+	}
 
 	/**
 	 * Initializes a new instance of the Connection class.
@@ -51,6 +132,8 @@ class Connection extends \Doctrine\DBAL\Connection {
 		parent::__construct($params, $driver, $config, $eventManager);
 		$this->adapter = new $params['adapter']($this);
 		$this->tablePrefix = $params['tablePrefix'];
+
+		parent::setTransactionIsolation(parent::TRANSACTION_READ_COMMITTED);
 	}
 
 	/**
@@ -68,37 +151,30 @@ class Connection extends \Doctrine\DBAL\Connection {
 		if (!is_null($limit)) {
 			$platform = $this->getDatabasePlatform();
 			$statement = $platform->modifyLimitQuery($statement, $limit, $offset);
-		} else {
-			if (isset($this->preparedQueries[$statement]) && $this->cachingQueryStatementEnabled) {
-				return $this->preparedQueries[$statement];
-			}
-			$origStatement = $statement;
 		}
 		$statement = $this->replaceTablePrefix($statement);
 		$statement = $this->adapter->fixupStatement($statement);
 
-		if(\OC_Config::getValue( 'log_query', false)) {
-			\OC_Log::write('core', 'DB prepare : '.$statement, \OC_Log::DEBUG);
+		if(\OC::$server->getSystemConfig()->getValue( 'log_query', false)) {
+			\OCP\Util::writeLog('core', 'DB prepare : '.$statement, \OCP\Util::DEBUG);
 		}
-		$result = parent::prepare($statement);
-		if (is_null($limit) && $this->cachingQueryStatementEnabled) {
-			$this->preparedQueries[$origStatement] = $result;
-		}
-		return $result;
+		return parent::prepare($statement);
 	}
 
 	/**
-	 * Executes an, optionally parameterized, SQL query.
+	 * Executes an, optionally parametrized, SQL query.
 	 *
-	 * If the query is parameterized, a prepared statement is used.
+	 * If the query is parametrized, a prepared statement is used.
 	 * If an SQLLogger is configured, the execution is logged.
 	 *
-	 * @param string $query The SQL query to execute.
-	 * @param string[] $params The parameters to bind to the query, if any.
-	 * @param array $types The types the previous parameters are in.
-	 * @param QueryCacheProfile $qcp
+	 * @param string                                      $query  The SQL query to execute.
+	 * @param array                                       $params The parameters to bind to the query, if any.
+	 * @param array                                       $types  The types the previous parameters are in.
+	 * @param \Doctrine\DBAL\Cache\QueryCacheProfile|null $qcp    The query cache profile, optional.
+	 *
 	 * @return \Doctrine\DBAL\Driver\Statement The executed statement.
-	 * @internal PERF: Directly prepares a driver statement, not a wrapper.
+	 *
+	 * @throws \Doctrine\DBAL\DBALException
 	 */
 	public function executeQuery($query, array $params = array(), $types = array(), QueryCacheProfile $qcp = null)
 	{
@@ -113,11 +189,13 @@ class Connection extends \Doctrine\DBAL\Connection {
 	 *
 	 * This method supports PDO binding types as well as DBAL mapping types.
 	 *
-	 * @param string $query The SQL query.
-	 * @param array $params The query parameters.
-	 * @param array $types The parameter types.
+	 * @param string $query  The SQL query.
+	 * @param array  $params The query parameters.
+	 * @param array  $types  The parameter types.
+	 *
 	 * @return integer The number of affected rows.
-	 * @internal PERF: Directly prepares a driver statement, not a wrapper.
+	 *
+	 * @throws \Doctrine\DBAL\DBALException
 	 */
 	public function executeUpdate($query, array $params = array(), array $types = array())
 	{
@@ -137,8 +215,7 @@ class Connection extends \Doctrine\DBAL\Connection {
 	 * @param string $seqName Name of the sequence object from which the ID should be returned.
 	 * @return string A string representation of the last inserted ID.
 	 */
-	public function lastInsertId($seqName = null)
-	{
+	public function lastInsertId($seqName = null) {
 		if ($seqName) {
 			$seqName = $this->replaceTablePrefix($seqName);
 		}
@@ -146,19 +223,81 @@ class Connection extends \Doctrine\DBAL\Connection {
 	}
 
 	// internal use
-	public function realLastInsertId($seqName = null)
-	{
+	public function realLastInsertId($seqName = null) {
 		return parent::lastInsertId($seqName);
 	}
 
 	/**
-	 * @brief Insert a row if a matching row doesn't exists.
-	 * @param string $table. The table to insert into in the form '*PREFIX*tableName'
-	 * @param array $input. An array of fieldname/value pairs
-	 * @return bool The return value from execute()
+	 * Insert a row if the matching row does not exists.
+	 *
+	 * @param string $table The table name (will replace *PREFIX* with the actual prefix)
+	 * @param array $input data that should be inserted into the table  (column name => value)
+	 * @param array|null $compare List of values that should be checked for "if not exists"
+	 *				If this is null or an empty array, all keys of $input will be compared
+	 *				Please note: text fields (clob) must not be used in the compare array
+	 * @return int number of inserted rows
+	 * @throws \Doctrine\DBAL\DBALException
 	 */
-	public function insertIfNotExist($table, $input) {
-		return $this->adapter->insertIfNotExist($table, $input);
+	public function insertIfNotExist($table, $input, array $compare = null) {
+		return $this->adapter->insertIfNotExist($table, $input, $compare);
+	}
+
+	private function getType($value) {
+		if (is_bool($value)) {
+			return IQueryBuilder::PARAM_BOOL;
+		} else if (is_int($value)) {
+			return IQueryBuilder::PARAM_INT;
+		} else {
+			return IQueryBuilder::PARAM_STR;
+		}
+	}
+
+	/**
+	 * Insert or update a row value
+	 *
+	 * @param string $table
+	 * @param array $keys (column name => value)
+	 * @param array $values (column name => value)
+	 * @param array $updatePreconditionValues ensure values match preconditions (column name => value)
+	 * @return int number of new rows
+	 * @throws \Doctrine\DBAL\DBALException
+	 * @throws PreconditionNotMetException
+	 */
+	public function setValues($table, array $keys, array $values, array $updatePreconditionValues = []) {
+		try {
+			$insertQb = $this->getQueryBuilder();
+			$insertQb->insert($table)
+				->values(
+					array_map(function($value) use ($insertQb) {
+						return $insertQb->createNamedParameter($value, $this->getType($value));
+					}, array_merge($keys, $values))
+				);
+			return $insertQb->execute();
+		} catch (\Doctrine\DBAL\Exception\ConstraintViolationException $e) {
+			// value already exists, try update
+			$updateQb = $this->getQueryBuilder();
+			$updateQb->update($table);
+			foreach ($values as $name => $value) {
+				$updateQb->set($name, $updateQb->createNamedParameter($value, $this->getType($value)));
+			}
+			$where = $updateQb->expr()->andx();
+			$whereValues = array_merge($keys, $updatePreconditionValues);
+			foreach ($whereValues as $name => $value) {
+				$where->add($updateQb->expr()->eq(
+					$name,
+					$updateQb->createNamedParameter($value, $this->getType($value)),
+					$this->getType($value)
+				));
+			}
+			$updateQb->where($where);
+			$affected = $updateQb->execute();
+
+			if ($affected === 0) {
+				throw new PreconditionNotMetException();
+			}
+
+			return 0;
+		}
 	}
 
 	/**
@@ -177,6 +316,31 @@ class Connection extends \Doctrine\DBAL\Connection {
 		return $msg;
 	}
 
+	/**
+	 * Drop a table from the database if it exists
+	 *
+	 * @param string $table table name without the prefix
+	 */
+	public function dropTable($table) {
+		$table = $this->tablePrefix . trim($table);
+		$schema = $this->getSchemaManager();
+		if($schema->tablesExist(array($table))) {
+			$schema->dropTable($table);
+		}
+	}
+
+	/**
+	 * Check if a table exists
+	 *
+	 * @param string $table table name without the prefix
+	 * @return bool
+	 */
+	public function tableExists($table){
+		$table = $this->tablePrefix . trim($table);
+		$schema = $this->getSchemaManager();
+		return $schema->tablesExist(array($table));
+	}
+
 	// internal use
 	/**
 	 * @param string $statement
@@ -186,12 +350,23 @@ class Connection extends \Doctrine\DBAL\Connection {
 		return str_replace( '*PREFIX*', $this->tablePrefix, $statement );
 	}
 
-	public function enableQueryStatementCaching() {
-		$this->cachingQueryStatementEnabled = true;
+	/**
+	 * Check if a transaction is active
+	 *
+	 * @return bool
+	 * @since 8.2.0
+	 */
+	public function inTransaction() {
+		return $this->getTransactionNestingLevel() > 0;
 	}
 
-	public function disableQueryStatementCaching() {
-		$this->cachingQueryStatementEnabled = false;
-		$this->preparedQueries = array();
+	/**
+	 * Espace a parameter to be used in a LIKE query
+	 *
+	 * @param string $param
+	 * @return string
+	 */
+	public function escapeLikeParameter($param) {
+		return addcslashes($param, '\\_%');
 	}
 }

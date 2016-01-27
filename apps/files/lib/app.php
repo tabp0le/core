@@ -1,23 +1,24 @@
 <?php
-
 /**
- * ownCloud - Core
+ * @author Christopher Schäpers <kondou@ts.unde.re>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ * @author Vincent Petry <pvince81@owncloud.com>
  *
- * @author Morris Jobke
- * @copyright 2013 Morris Jobke morris.jobke@gmail.com
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
  *
  */
 
@@ -26,92 +27,21 @@ namespace OCA\Files;
 
 class App {
 	/**
-	 * @var \OC_L10N
+	 * @var \OCP\INavigationManager
 	 */
-	private $l10n;
+	private static $navigationManager;
 
 	/**
-	 * @var \OC\Files\View
-	 */
-	private $view;
-
-	public function __construct($view, $l10n) {
-		$this->view = $view;
-		$this->l10n = $l10n;
-	}
-
-	/**
-	 * rename a file
+	 * Returns the app's navigation manager
 	 *
-	 * @param string $dir
-	 * @param string $oldname
-	 * @param string $newname
-	 * @return array
+	 * @return \OCP\INavigationManager
 	 */
-	public function rename($dir, $oldname, $newname) {
-		$result = array(
-			'success' 	=> false,
-			'data'		=> NULL
-		);
-
-		// rename to "/Shared" is denied
-		if( $dir === '/' and $newname === 'Shared' ) {
-			$result['data'] = array(
-				'message'	=> $this->l10n->t("Invalid folder name. Usage of 'Shared' is reserved.")
-			);
-		// rename to non-existing folder is denied
-		} else if (!$this->view->file_exists($dir)) {
-			$result['data'] = array('message' => (string)$this->l10n->t(
-					'The target folder has been moved or deleted.',
-					array($dir)),
-					'code' => 'targetnotfound'
-				);
-		// rename to existing file is denied
-		} else if ($this->view->file_exists($dir . '/' . $newname)) {
-			
-			$result['data'] = array(
-				'message'	=> $this->l10n->t(
-						"The name %s is already used in the folder %s. Please choose a different name.",
-						array($newname, $dir))
-			);
-		} else if (
-			// rename to "." is denied
-			$newname !== '.' and
-			// rename of  "/Shared" is denied
-			!($dir === '/' and $oldname === 'Shared') and
-			// THEN try to rename
-			$this->view->rename($dir . '/' . $oldname, $dir . '/' . $newname)
-		) {
-			// successful rename
-			$meta = $this->view->getFileInfo($dir . '/' . $newname);
-			if ($meta['mimetype'] === 'httpd/unix-directory') {
-				$meta['type'] = 'dir';
-			}
-			else {
-				$meta['type'] = 'file';
-			}
-			// these need to be set for determineIcon()
-			$meta['isPreviewAvailable'] = \OC::$server->getPreviewManager()->isMimeSupported($meta['mimetype']);
-			$meta['directory'] = $dir;
-			$fileinfo = array(
-				'id' => $meta['fileid'],
-				'mime' => $meta['mimetype'],
-				'size' => $meta['size'],
-				'etag' => $meta['etag'],
-				'directory' => $meta['directory'],
-				'name' => $newname,
-				'isPreviewAvailable' => $meta['isPreviewAvailable'],
-				'icon' => \OCA\Files\Helper::determineIcon($meta)
-			);
-			$result['success'] = true;
-			$result['data'] = $fileinfo;
-		} else {
-			// rename failed
-			$result['data'] = array(
-				'message'	=> $this->l10n->t('%s could not be renamed', array($oldname))
-			);
+	public static function getNavigationManager() {
+		// TODO: move this into a service in the Application class
+		if (self::$navigationManager === null) {
+			self::$navigationManager = new \OC\NavigationManager();
 		}
-		return $result;
+		return self::$navigationManager;
 	}
 
 }

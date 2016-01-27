@@ -1,27 +1,24 @@
 <?php
+/**
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
+ */
 
-//detect if we can switch on naming guidelines. We won't do it on conflicts.
-//it's a bit spaghetti, but hey.
-$state = OCP\Config::getSystemValue('ldapIgnoreNamingRules', 'unset');
-if($state === 'unset') {
-	OCP\Config::setSystemValue('ldapIgnoreNamingRules', false);
-}
-
-$configPrefixes = OCA\user_ldap\lib\Helper::getServerConfigurationPrefixes(true);
-$ldap = new OCA\user_ldap\lib\LDAP();
-foreach($configPrefixes as $config) {
-	$connection = new OCA\user_ldap\lib\Connection($ldap, $config);
-	$value = \OCP\Config::getAppValue('user_ldap',
-									  $config.'ldap_uuid_attribute', 'auto');
-	\OCP\Config::setAppValue('user_ldap',
-							 $config.'ldap_uuid_user_attribute', $value);
-	\OCP\Config::setAppValue('user_ldap',
-							 $config.'ldap_uuid_group_attribute', $value);
-
-	$value = \OCP\Config::getAppValue('user_ldap',
-									  $config.'ldap_expert_uuid_attr', 'auto');
-	\OCP\Config::setAppValue('user_ldap',
-							 $config.'ldap_expert_uuid_user_attr', $value);
-	\OCP\Config::setAppValue('user_ldap',
-							 $config.'ldap_expert_uuid_group_attr', $value);
-}
+OCP\Backgroundjob::registerJob('OCA\user_ldap\lib\Jobs');
+OCP\Backgroundjob::registerJob('\OCA\User_LDAP\Jobs\CleanUp');

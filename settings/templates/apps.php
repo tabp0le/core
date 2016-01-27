@@ -1,57 +1,170 @@
-<?php /**
- * Copyright (c) 2011, Robin Appelman <icewind1991@gmail.com>
- * This file is licensed under the Affero General Public License version 3 or later.
- * See the COPYING-README file.
- */?>
- <script type="text/javascript"
-	src="<?php print_unescaped(OC_Helper::linkToRoute('apps_custom'));?>?appid=<?php p($_['appid']); ?>"></script>
- <script type="text/javascript" src="<?php print_unescaped(OC_Helper::linkTo('settings/js', 'apps.js'));?>"></script>
+<?php
+style('settings', 'settings');
+vendor_style(
+	'core',
+	[
+		'select2/select2',
+	]
+);
+vendor_script(
+	'core',
+	[
+		'handlebars/handlebars',
+		'select2/select2'
+	]
+);
+script(
+	'settings',
+	[
+		'settings',
+		'apps',
+	]
+);
+/** @var array $_ */
+?>
+<script id="categories-template" type="text/x-handlebars-template">
+{{#each this}}
+	<li id="app-category-{{ident}}" data-category-id="{{ident}}" tabindex="0">
+		<a>{{displayName}}</a>
+	</li>
+{{/each}}
 
-
-<ul id="leftcontent" class="applist">
-	<?php if(OC_Config::getValue('appstoreenabled', true) === true): ?>
+<?php if($_['appstoreEnabled']): ?>
 	<li>
-		<a class="app-external" target="_blank" href="http://owncloud.org/dev"><?php p($l->t('Add your App'));?> …</a>
+		<a class="app-external" target="_blank" href="https://owncloud.org/dev"><?php p($l->t('Developer documentation'));?> ↗</a>
 	</li>
-	<?php endif; ?>
+<?php endif; ?>
+</script>
 
-	<?php foreach($_['apps'] as $app):?>
-	<li <?php if($app['active']) print_unescaped('class="active"')?> data-id="<?php p($app['id']) ?>"
-		<?php if ( isset( $app['ocs_id'] ) ) { print_unescaped("data-id-ocs=\"{".OC_Util::sanitizeHTML($app['ocs_id'])."}\""); } ?>
-			data-type="<?php p($app['internal'] ? 'internal' : 'external') ?>" data-installed="1">
-		<a class="app<?php if(!$app['internal']) p(' externalapp') ?>"
-			href="?appid=<?php p($app['id']) ?>"><?php p($app['name']) ?></a>
-		<?php  if(!$app['internal'])
-			print_unescaped('<small class="'.OC_Util::sanitizeHTML($app['internalclass']).' list">'.OC_Util::sanitizeHTML($app['internallabel']).'</small>') ?>
-	</li>
-	<?php endforeach;?>
+<script id="app-template" type="text/x-handlebars">
+	{{#if firstExperimental}}
+		<div class="section apps-experimental">
+			<h2><?php p($l->t('Experimental applications ahead')) ?></h2>
+			<p>
+				<?php p($l->t('Experimental apps are not checked for security issues, new or known to be unstable and under heavy development. Installing them can cause data loss or security breaches.')) ?>
+			</p>
+		</div>
+	{{/if}}
 
-	<?php if(OC_Config::getValue('appstoreenabled', true) === true): ?>
-	<li>
-		<a class="app-external" target="_blank" href="http://apps.owncloud.com"><?php p($l->t('More Apps'));?> …</a>
-	</li>
-	<?php endif; ?>
-</ul>
-<div id="rightcontent">
-	<div class="appinfo">
-	<h3><strong><span class="name"><?php p($l->t('Select an App'));?></span></strong><span
-		class="version"></span><small class="externalapp" style="visibility:hidden;"></small></h3>
-	<span class="score"></span>
-	<p class="description"></p>
-	<p class="documentation hidden">
-		<?php p($l->t("Documentation:"));?>
-		<span class="userDocumentation appslink"></span>
-		<span class="adminDocumentation appslink"></span>
-	</p>
-	<img src="" class="preview hidden" />
-	<p class="appslink appstore hidden"><a id="appstorelink" href="#" target="_blank"><?php
-		p($l->t('See application page at apps.owncloud.com'));?></a></p>
-	<p class="appslink website hidden"><a id="websitelink" href="#" target="_blank"><?php
-		p($l->t('See application website'));?></a></p>
-	<p class="license hidden"><?php
-		print_unescaped($l->t('<span class="licence"></span>-licensed by <span class="author"></span>'));?></p>
-	<input class="enable hidden" type="submit" />
-	<input class="update hidden" type="submit" value="<?php p($l->t('Update')); ?>" />
+	<div class="section" id="app-{{id}}">
+	{{#if preview}}
+	<div class="app-image{{#if previewAsIcon}} app-image-icon{{/if}} hidden">
+	</div>
+	{{/if}}
+	<h2 class="app-name">
+		{{#if detailpage}}
+			<a href="{{detailpage}}" target="_blank">{{name}}</a>
+		{{else}}
+			{{name}}
+		{{/if}}
+	</h2>
+	<div class="app-version"> {{version}}</div>
+	{{#if profilepage}}<a href="{{profilepage}}" target="_blank" rel="noreferrer">{{/if}}
+	<div class="app-author"><?php p($l->t('by %s', ['{{author}}']));?>
+		{{#if licence}}
+		(<?php p($l->t('%s-licensed', ['{{licence}}'])); ?>)
+		{{/if}}
+	</div>
+	{{#if profilepage}}</a>{{/if}}
+	<div class="app-level">
+		{{{level}}}
+	</div>
+	{{#if score}}
+	<div class="app-score">{{{score}}}</div>
+	{{/if}}
+	<div class="app-detailpage"></div>
+
+	<div class="app-description-container hidden">
+		<div class="app-description"><pre>{{description}}</pre></div>
+		<!--<div class="app-changed">{{changed}}</div>-->
+		{{#if documentation}}
+		<p class="documentation">
+			<?php p($l->t("Documentation:"));?>
+			{{#if documentation.user}}
+			<span class="userDocumentation">
+			<a id="userDocumentation" class="appslink" href="{{documentation.user}}" target="_blank"><?php p($l->t('User documentation'));?> ↗</a>
+			</span>
+			{{/if}}
+
+			{{#if documentation.admin}}
+			<span class="adminDocumentation">
+			<a id="adminDocumentation" class="appslink" href="{{documentation.admin}}" target="_blank"><?php p($l->t('Admin documentation'));?> ↗</a>
+			</span>
+			{{/if}}
+		</p>
+		{{/if}}
+	</div><!-- end app-description-container -->
+	<div class="app-description-toggle-show"><?php p($l->t("Show description …"));?></div>
+	<div class="app-description-toggle-hide hidden"><?php p($l->t("Hide description …"));?></div>
+
+	{{#if missingMinOwnCloudVersion}}
+		<div class="app-dependencies">
+			<p><?php p($l->t('This app has no minimum ownCloud version assigned. This will be an error in ownCloud 11 and later.')); ?></p>
+		</div>
+	{{else}}
+		{{#if missingMaxOwnCloudVersion}}
+			<div class="app-dependencies">
+				<p><?php p($l->t('This app has no maximum ownCloud version assigned. This will be an error in ownCloud 11 and later.')); ?></p>
+			</div>
+		{{/if}}
+	{{/if}}
+
+	{{#unless canInstall}}
+	<div class="app-dependencies">
+	<p><?php p($l->t('This app cannot be installed because the following dependencies are not fulfilled:')); ?></p>
+	<ul class="missing-dependencies">
+	{{#each missingDependencies}}
+	<li>{{this}}</li>
+	{{/each}}
+	</ul>
+	</div>
+	{{/unless}}
+
+	<input class="update hidden" type="submit" value="<?php p($l->t('Update to %s', array('{{update}}'))); ?>" data-appid="{{id}}" />
+	{{#if active}}
+	<input class="enable" type="submit" data-appid="{{id}}" data-active="true" value="<?php p($l->t("Disable"));?>"/>
+	<span class="groups-enable">
+		<input type="checkbox" class="groups-enable__checkbox checkbox" id="groups_enable-{{id}}"/>
+		<label for="groups_enable-{{id}}"><?php p($l->t('Enable only for specific groups')); ?></label>
+	</span>
+	<br />
+	<input type="hidden" id="group_select" title="<?php p($l->t('All')); ?>" style="width: 200px">
+	{{else}}
+	<input class="enable" type="submit" data-appid="{{id}}" data-active="false" {{#unless canInstall}}disabled="disabled"{{/unless}} value="<?php p($l->t("Enable"));?>"/>
+	{{/if}}
+	{{#if canUnInstall}}
+	<input class="uninstall" type="submit" value="<?php p($l->t('Uninstall App')); ?>" data-appid="{{id}}" />
+	{{/if}}
+
 	<div class="warning hidden"></div>
+
+	</div>
+</script>
+
+<div id="app-navigation" class="icon-loading" data-category="<?php p($_['category']);?>">
+	<ul id="apps-categories">
+
+	</ul>
+	<div id="app-settings">
+		<div id="app-settings-header">
+			<button class="settings-button" data-apps-slide-toggle="#app-settings-content"></button>
+		</div>
+
+		<div id="app-settings-content" class="apps-experimental">
+			<input type="checkbox" id="enable-experimental-apps" <?php if($_['experimentalEnabled']) { print_unescaped('checked="checked"'); }?> class="checkbox">
+			<label for="enable-experimental-apps"><?php p($l->t('Enable experimental apps')) ?></label>
+			<p>
+				<small>
+					<?php p($l->t('Experimental apps are not checked for security issues, new or known to be unstable and under heavy development. Installing them can cause data loss or security breaches.')) ?>
+				</small>
+			</p>
+		</div>
+	</div>
+</div>
+<div id="app-content">
+	<div id="apps-list" class="icon-loading"></div>
+	<div id="apps-list-empty" class="hidden emptycontent">
+		<div class="icon-search"></div>
+		<h2><?php p($l->t('No apps found for your version')) ?></h2>
 	</div>
 </div>

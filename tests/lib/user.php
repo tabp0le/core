@@ -9,15 +9,24 @@
 
 namespace Test;
 
-class User extends \PHPUnit_Framework_TestCase {
+/**
+ * Class User
+ *
+ * @group DB
+ *
+ * @package Test
+ */
+class User extends TestCase {
 	/**
 	 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 	 */
 	private $backend;
 	
 	protected function setUp(){
-		$this->backend = $this->getMock('\OC_User_Dummy');
-		$manager = \OC_User::getManager();
+		parent::setUp();
+
+		$this->backend = $this->getMock('\Test\Util\User\Dummy');
+		$manager = \OC::$server->getUserManager();
 		$manager->registerBackend($this->backend);
 	}
 	
@@ -41,31 +50,6 @@ class User extends \PHPUnit_Framework_TestCase {
 
 		$uid = \OC_User::checkPassword('foo', 'bar');
 		$this->assertEquals($uid, 'foo');
-	}
-	
-	public function testDeleteUser() {
-		$fail = \OC_User::deleteUser('victim');
-		$this->assertFalse($fail);
-		
-		$success = \OC_User::createUser('victim', 'password');
-		
-		$success = \OC_User::deleteUser('victim');
-		$this->assertTrue($success);
-	}
-	
-	public function testCreateUser(){
-		$this->backend->expects($this->any())
-			->method('implementsActions')
-			->will($this->returnCallback(function ($actions) {
-				if ($actions === \OC_USER_BACKEND_CREATE_USER) {
-					return true;
-				} else {
-					return false;
-				}
-			}));
-			
-		$user = \OC_User::createUser('newuser', 'newpassword');
-		$this->assertEquals('newuser', $user->getUid());
 	}
 
 }

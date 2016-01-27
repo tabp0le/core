@@ -1,189 +1,287 @@
 <?php
 /**
- * ownCloud
+ * @author Arthur Schiwon <blizzz@owncloud.com>
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Georg Ehrke <georg@owncloud.com>
+ * @author Lukas Reschke <lukas@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Roeland Jago Douma <rullzer@owncloud.com>
  *
- * @author Georg Ehrke
- * @copyright 2012 Georg Ehrke
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
  *
  */
-OC_Hook::connect('OC_User', 'post_deleteUser', 'OC_SubAdmin', 'post_deleteUser');
-OC_Hook::connect('OC_User', 'post_deleteGroup', 'OC_SubAdmin', 'post_deleteGroup');
-/**
- * This class provides all methods needed for managing groups.
- *
- * Hooks provided:
- *   post_createSubAdmin($gid)
- *   post_deleteSubAdmin($gid)
- */
-class OC_SubAdmin{
+
+namespace OC;
+
+use OC\Hooks\PublicEmitter;
+use OCP\IUser;
+use OCP\IUserManager;
+use OCP\IGroup;
+use OCP\IGroupManager;
+use OCP\IDBConnection;
+
+class SubAdmin extends PublicEmitter {
+
+	/** @var IUserManager */
+	private $userManager;
+
+	/** @var IGroupManager */
+	private $groupManager;
+
+	/** @var IDBConnection */
+	private $dbConn;
 
 	/**
-	 * @brief add a SubAdmin
-	 * @param $uid uid of the SubAdmin
-	 * @param $gid gid of the group
-	 * @return boolean
+	 * @param IUserManager $userManager
+	 * @param IGroupManager $groupManager
+	 * @param IDBConnection $dbConn
 	 */
-	public static function createSubAdmin($uid, $gid) {
-		$stmt = OC_DB::prepare('INSERT INTO `*PREFIX*group_admin` (`gid`,`uid`) VALUES(?,?)');
-		$result = $stmt->execute(array($gid, $uid));
-		OC_Hook::emit( "OC_SubAdmin", "post_createSubAdmin", array( "gid" => $gid ));
+	public function __construct(IUserManager $userManager,
+	                            IGroupManager $groupManager,
+								IDBConnection $dbConn) {
+		$this->userManager = $userManager;
+		$this->groupManager = $groupManager;
+		$this->dbConn = $dbConn;
+
+		$this->userManager->listen('\OC\User', 'postDelete', function($user) {
+			$this->post_deleteUser($user);
+		});
+		$this->groupManager->listen('\OC\Group', 'postDelete', function($group) {
+			$this->post_deleteGroup($group);	
+		});
+	}
+
+	/**
+	 * add a SubAdmin
+	 * @param IUser $user user to be SubAdmin
+	 * @param IGroup $group group $user becomes subadmin of
+	 * @return bool
+	 */
+	public function createSubAdmin(IUser $user, IGroup $group) {
+		$qb = $this->dbConn->getQueryBuilder();
+
+		$qb->insert('group_admin')
+			->values([
+				'gid' => $qb->createNamedParameter($group->getGID()),
+				'uid' => $qb->createNamedParameter($user->getUID())
+			])
+			->execute();
+
+		$this->emit('\OC\SubAdmin', 'postCreateSubAdmin', [$user, $group]);
+		\OC_Hook::emit("OC_SubAdmin", "post_createSubAdmin", ["gid" => $group->getGID()]);
 		return true;
 	}
 
 	/**
-	 * @brief delete a SubAdmin
-	 * @param $uid uid of the SubAdmin
-	 * @param $gid gid of the group
-	 * @return boolean
+	 * delete a SubAdmin
+	 * @param IUser $user the user that is the SubAdmin
+	 * @param IGroup $group the group
+	 * @return bool
 	 */
-	public static function deleteSubAdmin($uid, $gid) {
-		$stmt = OC_DB::prepare('DELETE FROM `*PREFIX*group_admin` WHERE `gid` = ? AND `uid` = ?');
-		$result = $stmt->execute(array($gid, $uid));
-		OC_Hook::emit( "OC_SubAdmin", "post_deleteSubAdmin", array( "gid" => $gid ));
+	public function deleteSubAdmin(IUser $user, IGroup $group) {
+		$qb = $this->dbConn->getQueryBuilder();
+
+		$qb->delete('group_admin')
+			->where($qb->expr()->eq('gid', $qb->createNamedParameter($group->getGID())))
+			->andWhere($qb->expr()->eq('uid', $qb->createNamedParameter($user->getUID())))
+			->execute();
+
+		$this->emit('\OC\SubAdmin', 'postDeleteSubAdmin', [$user, $group]);
+		\OC_Hook::emit("OC_SubAdmin", "post_deleteSubAdmin", ["gid" => $group->getGID()]);
 		return true;
 	}
 
 	/**
-	 * @brief get groups of a SubAdmin
-	 * @param $uid uid of the SubAdmin
-	 * @return array
+	 * get groups of a SubAdmin
+	 * @param IUser $user the SubAdmin
+	 * @return IGroup[]
 	 */
-	public static function getSubAdminsGroups($uid) {
-		$stmt = OC_DB::prepare('SELECT `gid` FROM `*PREFIX*group_admin` WHERE `uid` = ?');
-		$result = $stmt->execute(array($uid));
-		$gids = array();
-		while($row = $result->fetchRow()) {
-			$gids[] = $row['gid'];
+	public function getSubAdminsGroups(IUser $user) {
+		$qb = $this->dbConn->getQueryBuilder();
+
+		$result = $qb->select('gid')
+			->from('group_admin')
+			->where($qb->expr()->eq('uid', $qb->createNamedParameter($user->getUID())))
+			->execute();
+
+		$groups = [];
+		while($row = $result->fetch()) {
+			$group = $this->groupManager->get($row['gid']);
+			if(!is_null($group)) {
+				$groups[] = $group;
+			}
 		}
-		return $gids;
+		$result->closeCursor();
+
+		return $groups;
 	}
 
 	/**
-	 * @brief get SubAdmins of a group
-	 * @param $gid gid of the group
-	 * @return array
+	 * get SubAdmins of a group
+	 * @param IGroup $group the group
+	 * @return IUser[]
 	 */
-	public static function getGroupsSubAdmins($gid) {
-		$stmt = OC_DB::prepare('SELECT `uid` FROM `*PREFIX*group_admin` WHERE `gid` = ?');
-		$result = $stmt->execute(array($gid));
-		$uids = array();
-		while($row = $result->fetchRow()) {
-			$uids[] = $row['uid'];
+	public function getGroupsSubAdmins(IGroup $group) {
+		$qb = $this->dbConn->getQueryBuilder();
+
+		$result = $qb->select('uid')
+			->from('group_admin')
+			->where($qb->expr()->eq('gid', $qb->createNamedParameter($group->getGID())))
+			->execute();
+
+		$users = [];
+		while($row = $result->fetch()) {
+			$user = $this->userManager->get($row['uid']);
+			if(!is_null($user)) {
+				$users[] = $user;
+			}
 		}
-		return $uids;
+		$result->closeCursor();
+
+		return $users;
 	}
 
 	/**
-	 * @brief get all SubAdmins
+	 * get all SubAdmins
 	 * @return array
 	 */
-	public static function getAllSubAdmins() {
-		$stmt = OC_DB::prepare('SELECT * FROM `*PREFIX*group_admin`');
-		$result = $stmt->execute();
-		$subadmins = array();
-		while($row = $result->fetchRow()) {
-			$subadmins[] = $row;
+	public function getAllSubAdmins() {
+		$qb = $this->dbConn->getQueryBuilder();
+
+		$result = $qb->select('*')
+			->from('group_admin')
+			->execute();
+
+		$subadmins = [];
+		while($row = $result->fetch()) {
+			$user = $this->userManager->get($row['uid']);
+			$group = $this->groupManager->get($row['gid']);
+			if(!is_null($user) && !is_null($group)) {
+				$subadmins[] = [
+					'user'  => $user,
+					'group' => $group
+				];
+			}
 		}
+		$result->closeCursor();
+
 		return $subadmins;
 	}
 
 	/**
-	 * @brief checks if a user is a SubAdmin of a group
-	 * @param $uid uid of the subadmin
-	 * @param $gid gid of the group
+	 * checks if a user is a SubAdmin of a group
+	 * @param IUser $user 
+	 * @param IGroup $group
 	 * @return bool
 	 */
-	public static function isSubAdminofGroup($uid, $gid) {
-		$stmt = OC_DB::prepare('SELECT COUNT(*) AS `count` FROM `*PREFIX*group_admin` WHERE `uid` = ? AND `gid` = ?');
-		$result = $stmt->execute(array($uid, $gid));
-		$result = $result->fetchRow();
-		if($result['count'] >= 1) {
-			return true;
-		}
-		return false;
+	public function isSubAdminofGroup(IUser $user, IGroup $group) {
+		$qb = $this->dbConn->getQueryBuilder();
+
+		/*
+		 * Primary key is ('gid', 'uid') so max 1 result possible here
+		 */
+		$result = $qb->select('*')
+			->from('group_admin')
+			->where($qb->expr()->eq('gid', $qb->createNamedParameter($group->getGID())))
+			->andWhere($qb->expr()->eq('uid', $qb->createNamedParameter($user->getUID())))
+			->execute();
+
+		$fetch =  $result->fetch();
+		$result->closeCursor();
+		$result = !empty($fetch) ? true : false;
+
+		return $result;
 	}
 
 	/**
-	 * @brief checks if a user is a SubAdmin
-	 * @param $uid uid of the subadmin
+	 * checks if a user is a SubAdmin
+	 * @param IUser $user 
 	 * @return bool
 	 */
-	public static function isSubAdmin($uid) {
+	public function isSubAdmin(IUser $user) {
 		// Check if the user is already an admin
-		if(OC_Group::inGroup($uid, 'admin' )) {
+		if ($this->groupManager->isAdmin($user->getUID())) {
 			return true;
 		}
 
-		$stmt = OC_DB::prepare('SELECT COUNT(*) AS `count` FROM `*PREFIX*group_admin` WHERE `uid` = ?');
-		$result = $stmt->execute(array($uid));
-		$result = $result->fetchRow();
-		if($result['count'] > 0) {
-			return true;
-		}
-		return false;
+		$qb = $this->dbConn->getQueryBuilder();
+
+		$result = $qb->select('gid')
+			->from('group_admin')
+			->andWhere($qb->expr()->eq('uid', $qb->createNamedParameter($user->getUID())))
+			->setMaxResults(1)
+			->execute();
+
+		$isSubAdmin = $result->fetch();
+		$result->closeCursor();
+
+		$result = $isSubAdmin === false ? false : true;
+
+		return $result;
 	}
 
 	/**
-	 * @brief checks if a user is a accessible by a subadmin
-	 * @param $subadmin uid of the subadmin
-	 * @param $user uid of the user
+	 * checks if a user is a accessible by a subadmin
+	 * @param IUser $subadmin
+	 * @param IUser $user
 	 * @return bool
 	 */
-	public static function isUserAccessible($subadmin, $user) {
-		if(!self::isSubAdmin($subadmin)) {
+	public function isUserAccessible($subadmin, $user) {
+		if(!$this->isSubAdmin($subadmin)) {
 			return false;
 		}
-		if(OC_User::isAdminUser($user)) {
+		if($this->groupManager->isAdmin($user->getUID())) {
 			return false;
 		}
-		$accessiblegroups = self::getSubAdminsGroups($subadmin);
-		foreach($accessiblegroups as $accessiblegroup) {
-			if(OC_Group::inGroup($user, $accessiblegroup)) {
+		$accessibleGroups = $this->getSubAdminsGroups($subadmin);
+		foreach($accessibleGroups as $accessibleGroup) {
+			if($accessibleGroup->inGroup($user)) {
 				return true;
 			}
 		}
 		return false;
 	}
 
-	/*
-	 * @brief alias for self::isSubAdminofGroup()
-	 */
-	public static function isGroupAccessible($subadmin, $group) {
-		return self::isSubAdminofGroup($subadmin, $group);
-	}
-
 	/**
-	 * @brief delete all SubAdmins by uid
-	 * @param $parameters
+	 * delete all SubAdmins by $user
+	 * @param IUser $user
 	 * @return boolean
 	 */
-	public static function post_deleteUser($parameters) {
-		$stmt = OC_DB::prepare('DELETE FROM `*PREFIX*group_admin` WHERE `uid` = ?');
-		$result = $stmt->execute(array($parameters['uid']));
+	private function post_deleteUser($user) {
+		$qb = $this->dbConn->getQueryBuilder();
+
+		$qb->delete('group_admin')
+			->where($qb->expr()->eq('uid', $qb->createNamedParameter($user->getUID())))
+			->execute();
+
 		return true;
 	}
 
 	/**
-	 * @brief delete all SubAdmins by gid
-	 * @param $parameters
+	 * delete all SubAdmins by $group
+	 * @param IGroup $group
 	 * @return boolean
 	 */
-	public static function post_deleteGroup($parameters) {
-		$stmt = OC_DB::prepare('DELETE FROM `*PREFIX*group_admin` WHERE `gid` = ?');
-		$result = $stmt->execute(array($parameters['gid']));
+	private function post_deleteGroup($group) {
+		$qb = $this->dbConn->getQueryBuilder();
+
+		$qb->delete('group_admin')
+			->where($qb->expr()->eq('gid', $qb->createNamedParameter($group->getGID())))
+			->execute();
+
 		return true;
 	}
 }

@@ -6,7 +6,7 @@
  * See the COPYING-README file.
  */
 
-class Test_Helper extends PHPUnit_Framework_TestCase {
+class Test_Helper extends \Test\TestCase {
 
 	/**
 	 * @dataProvider humanFileSizeProvider
@@ -21,8 +21,9 @@ class Test_Helper extends PHPUnit_Framework_TestCase {
 	{
 		return array(
 			array('0 B', 0),
-			array('1 kB', 1024),
+			array('1 KB', 1024),
 			array('9.5 MB', 10000000),
+			array('1.3 GB', 1395864371),
 			array('465.7 GB', 500000000000),
 			array('454.7 TB', 500000000000000),
 			array('444.1 PB', 500000000000000000),
@@ -30,69 +31,55 @@ class Test_Helper extends PHPUnit_Framework_TestCase {
 	}
 
 	/**
-	 * @dataProvider computerFileSizeProvider
+	 * @dataProvider phpFileSizeProvider
+	 */
+	public function testPhpFileSize($expected, $input)
+	{
+		$result = OC_Helper::phpFileSize($input);
+		$this->assertEquals($expected, $result);
+	}
+
+	public function phpFileSizeProvider()
+	{
+		return array(
+			array('0B', 0),
+			array('1K', 1024),
+			array('9.5M', 10000000),
+			array('1.3G', 1395864371),
+			array('465.7G', 500000000000),
+			array('465661.3G', 500000000000000),
+			array('465661287.3G', 500000000000000000),
+		);
+	}
+
+	/**
+	 * @dataProvider providesComputerFileSize
 	 */
 	function testComputerFileSize($expected, $input) {
 		$result = OC_Helper::computerFileSize($input);
 		$this->assertEquals($expected, $result);
 	}
 
-	function computerFileSizeProvider(){
-		return array(
-			array(0.0, "0 B"),
-			array(1024.0, "1 kB"),
-			array(9961472.0, "9.5 MB"),
-			array(500041567436.8, "465.7 GB"),
-		);
+	function providesComputerFileSize(){
+		return [
+			[0.0, "0 B"],
+			[1024.0, "1 KB"],
+			[1395864371.0, '1.3 GB'],
+			[9961472.0, "9.5 MB"],
+			[500041567437.0, "465.7 GB"],
+			[false, "12 GB etfrhzui"]
+		];
 	}
 
-	function testGetMimeType() {
-		$dir=OC::$SERVERROOT.'/tests/data';
-		$result = OC_Helper::getMimeType($dir."/");
-		$expected = 'httpd/unix-directory';
-		$this->assertEquals($result, $expected);
-
-		$result = OC_Helper::getMimeType($dir."/data.tar.gz");
-		$expected = 'application/x-gzip';
-		$this->assertEquals($result, $expected);
-
-		$result = OC_Helper::getMimeType($dir."/data.zip");
-		$expected = 'application/zip';
-		$this->assertEquals($result, $expected);
-
-		$result = OC_Helper::getMimeType($dir."/logo-wide.svg");
-		$expected = 'image/svg+xml';
-		$this->assertEquals($result, $expected);
-
-		$result = OC_Helper::getMimeType($dir."/logo-wide.png");
-		$expected = 'image/png';
-		$this->assertEquals($result, $expected);
-	}
-
-	function testGetFileNameMimeType() {
-		$this->assertEquals('text/plain', OC_Helper::getFileNameMimeType('foo.txt'));
-		$this->assertEquals('image/png', OC_Helper::getFileNameMimeType('foo.png'));
-		$this->assertEquals('image/png', OC_Helper::getFileNameMimeType('foo.bar.png'));
-		$this->assertEquals('application/octet-stream', OC_Helper::getFileNameMimeType('.png'));
-		$this->assertEquals('application/octet-stream', OC_Helper::getFileNameMimeType('foo'));
-		$this->assertEquals('application/octet-stream', OC_Helper::getFileNameMimeType(''));
-	}
-
-	function testGetStringMimeType() {
-		$result = OC_Helper::getStringMimeType("/data/data.tar.gz");
-		$expected = 'text/plain; charset=us-ascii';
-		$this->assertEquals($result, $expected);
-	}
-
-	function testIssubdirectory() {
-		$result = OC_Helper::issubdirectory("./data/", "/anotherDirectory/");
+	function testIsSubDirectory() {
+		$result = OC_Helper::isSubDirectory("./data/", "/anotherDirectory/");
 		$this->assertFalse($result);
 
-		$result = OC_Helper::issubdirectory("./data/", "./data/");
+		$result = OC_Helper::isSubDirectory("./data/", "./data/");
 		$this->assertTrue($result);
 
 		mkdir("data/TestSubdirectory", 0777);
-		$result = OC_Helper::issubdirectory("data/TestSubdirectory/", "data");
+		$result = OC_Helper::isSubDirectory("data/TestSubdirectory/", "data");
 		rmdir("data/TestSubdirectory");
 		$this->assertTrue($result);
 	}
@@ -120,18 +107,6 @@ class Test_Helper extends PHPUnit_Framework_TestCase {
 			);
 		$result = OC_Helper::mb_array_change_key_case($arrayStart, MB_CASE_UPPER);
 		$expected = $arrayResult;
-		$this->assertEquals($result, $expected);	
-	}
-
-	function testMb_substr_replace() {
-		$result = OC_Helper::mb_substr_replace("This  is a teststring", "string", 5);
-		$expected = "This string is a teststring";
-		$this->assertEquals($result, $expected);
-	}
-
-	function testMb_str_replace() {
-		$result = OC_Helper::mb_str_replace("teststring", "string", "This is a teststring");
-		$expected = "This is a string";
 		$this->assertEquals($result, $expected);
 	}
 
@@ -242,5 +217,81 @@ class Test_Helper extends PHPUnit_Framework_TestCase {
 			array(filesize(\OC::$SERVERROOT . '/tests/data/lorem.txt'), true, \OC::$SERVERROOT . '/tests/data/lorem.txt', \OC::$SERVERROOT . '/tests/data/lorem-copy.txt'),
 			array(3670, true, \OC::$SERVERROOT . '/tests/data/testimage.png', \OC::$SERVERROOT . '/tests/data/testimage-copy.png'),
 		);
+	}
+
+	// Url generator methods
+
+	/**
+	 * @small
+	 * test linkToPublic URL construction
+	 */
+	public function testLinkToPublic() {
+		\OC::$WEBROOT = '';
+		$result = \OC_Helper::linkToPublic('files');
+		$this->assertEquals('http://localhost/s', $result);
+		$result = \OC_Helper::linkToPublic('files', false);
+		$this->assertEquals('http://localhost/s', $result);
+		$result = \OC_Helper::linkToPublic('files', true);
+		$this->assertEquals('http://localhost/s/', $result);
+
+		$result = \OC_Helper::linkToPublic('other');
+		$this->assertEquals('http://localhost/public.php?service=other', $result);
+		$result = \OC_Helper::linkToPublic('other', false);
+		$this->assertEquals('http://localhost/public.php?service=other', $result);
+		$result = \OC_Helper::linkToPublic('other', true);
+		$this->assertEquals('http://localhost/public.php?service=other/', $result);
+
+		\OC::$WEBROOT = '/owncloud';
+		$result = \OC_Helper::linkToPublic('files');
+		$this->assertEquals('http://localhost/owncloud/s', $result);
+		$result = \OC_Helper::linkToPublic('files', false);
+		$this->assertEquals('http://localhost/owncloud/s', $result);
+		$result = \OC_Helper::linkToPublic('files', true);
+		$this->assertEquals('http://localhost/owncloud/s/', $result);
+
+		$result = \OC_Helper::linkToPublic('other');
+		$this->assertEquals('http://localhost/owncloud/public.php?service=other', $result);
+		$result = \OC_Helper::linkToPublic('other', false);
+		$this->assertEquals('http://localhost/owncloud/public.php?service=other', $result);
+		$result = \OC_Helper::linkToPublic('other', true);
+		$this->assertEquals('http://localhost/owncloud/public.php?service=other/', $result);
+	}
+
+	/**
+	 * Tests recursive folder deletion with rmdirr()
+	 */
+	public function testRecursiveFolderDeletion() {
+		$baseDir = \OC::$server->getTempManager()->getTemporaryFolder() . '/';
+		mkdir($baseDir . 'a/b/c/d/e', 0777, true);
+		mkdir($baseDir . 'a/b/c1/d/e', 0777, true);
+		mkdir($baseDir . 'a/b/c2/d/e', 0777, true);
+		mkdir($baseDir . 'a/b1/c1/d/e', 0777, true);
+		mkdir($baseDir . 'a/b2/c1/d/e', 0777, true);
+		mkdir($baseDir . 'a/b3/c1/d/e', 0777, true);
+		mkdir($baseDir . 'a1/b', 0777, true);
+		mkdir($baseDir . 'a1/c', 0777, true);
+		file_put_contents($baseDir . 'a/test.txt', 'Hello file!');
+		file_put_contents($baseDir . 'a/b1/c1/test one.txt', 'Hello file one!');
+		file_put_contents($baseDir . 'a1/b/test two.txt', 'Hello file two!');
+		\OC_Helper::rmdirr($baseDir . 'a');
+
+		$this->assertFalse(file_exists($baseDir . 'a'));
+		$this->assertTrue(file_exists($baseDir . 'a1'));
+
+		\OC_Helper::rmdirr($baseDir);
+		$this->assertFalse(file_exists($baseDir));
+	}
+
+	/**
+	 * Allows us to test private methods/properties
+	 *
+	 * @param $object
+	 * @param $methodName
+	 * @param array $parameters
+	 * @return mixed
+	 * @deprecated Please extend \Test\TestCase and use self::invokePrivate() then
+	 */
+	public static function invokePrivate($object, $methodName, array $parameters = array()) {
+		return parent::invokePrivate($object, $methodName, $parameters);
 	}
 }

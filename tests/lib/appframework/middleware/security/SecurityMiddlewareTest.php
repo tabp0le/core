@@ -1,75 +1,98 @@
 <?php
-
 /**
- * ownCloud - App Framework
+ * @author Bernhard Posselt <dev@bernhard-posselt.com>
+ * @author Lukas Reschke <lukas@owncloud.com>
  *
- * @author Bernhard Posselt
- * @copyright 2012 Bernhard Posselt nukeawhale@gmail.com
+ * @copyright Copyright (c) 2015, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
  *
  */
+
 
 
 namespace OC\AppFramework\Middleware\Security;
 
 use OC\AppFramework\Http;
 use OC\AppFramework\Http\Request;
-use OC\AppFramework\Http\RedirectResponse;
+use OC\Appframework\Middleware\Security\Exceptions\AppNotEnabledException;
+use OC\Appframework\Middleware\Security\Exceptions\CrossSiteRequestForgeryException;
+use OC\Appframework\Middleware\Security\Exceptions\NotAdminException;
+use OC\Appframework\Middleware\Security\Exceptions\NotLoggedInException;
+use OC\AppFramework\Middleware\Security\Exceptions\SecurityException;
+use OC\AppFramework\Utility\ControllerMethodReflector;
+use OCP\AppFramework\Http\RedirectResponse;
 use OCP\AppFramework\Http\JSONResponse;
+use OCP\AppFramework\Http\TemplateResponse;
 
 
-class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
+class SecurityMiddlewareTest extends \Test\TestCase {
 
 	private $middleware;
 	private $controller;
 	private $secException;
 	private $secAjaxException;
 	private $request;
+	private $reader;
+	private $logger;
+	private $navigationManager;
+	private $urlGenerator;
 
-	public function setUp() {
-		$api = $this->getMock('OC\AppFramework\DependencyInjection\DIContainer', array(), array('test'));
-		$this->controller = $this->getMock('OCP\AppFramework\Controller',
-				array(), array($api, new Request()));
+	protected function setUp() {
+		parent::setUp();
 
-		$this->request = new Request();
-		$this->middleware = new SecurityMiddleware($api, $this->request);
+		$this->controller = $this->getMockBuilder('OCP\AppFramework\Controller')
+			->disableOriginalConstructor()
+				->getMock();
+		$this->reader = new ControllerMethodReflector();
+		$this->logger = $this->getMockBuilder(
+				'OCP\ILogger')
+				->disableOriginalConstructor()
+				->getMock();
+		$this->navigationManager = $this->getMockBuilder(
+				'OCP\INavigationManager')
+				->disableOriginalConstructor()
+				->getMock();
+		$this->urlGenerator = $this->getMockBuilder(
+				'OCP\IURLGenerator')
+				->disableOriginalConstructor()
+				->getMock();
+		$this->request = $this->getMockBuilder(
+				'OCP\IRequest')
+				->disableOriginalConstructor()
+				->getMock();
+		$this->middleware = $this->getMiddleware(true, true);
 		$this->secException = new SecurityException('hey', false);
 		$this->secAjaxException = new SecurityException('hey', true);
 	}
 
-
-	private function getAPI(){
-		return $this->getMock('OC\AppFramework\DependencyInjection\DIContainer',
-					array('isLoggedIn', 'passesCSRFCheck', 'isAdminUser',
-							'isSubAdminUser', 'getUserId'),
-					array('app'));
-	}
-
-
 	/**
-	 * @param string $method
+	 * @param bool $isLoggedIn
+	 * @param bool $isAdminUser
+	 * @return SecurityMiddleware
 	 */
-	private function checkNavEntry($method){
-		$api = $this->getAPI();
-
-		$serverMock = $this->getMock('\OC\Server', array());
-		$api->expects($this->any())->method('getServer')
-			->will($this->returnValue($serverMock));
-
-		$sec = new SecurityMiddleware($api, $this->request);
-		$sec->beforeController('\OC\AppFramework\Middleware\Security\SecurityMiddlewareTest', $method);
+	private function getMiddleware($isLoggedIn, $isAdminUser) {
+		return new SecurityMiddleware(
+			$this->request,
+			$this->reader,
+			$this->navigationManager,
+			$this->urlGenerator,
+			$this->logger,
+			'files',
+			$isLoggedIn,
+			$isAdminUser
+		);
 	}
 
 
@@ -78,7 +101,12 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 * @NoCSRFRequired
 	 */
 	public function testSetNavigationEntry(){
-		$this->checkNavEntry('testSetNavigationEntry');
+		$this->navigationManager->expects($this->once())
+			->method('setActiveEntry')
+			->with($this->equalTo('files'));
+
+		$this->reader->reflect(__CLASS__, __FUNCTION__);
+		$this->middleware->beforeController(__CLASS__, __FUNCTION__);
 	}
 
 
@@ -87,31 +115,33 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 * @param string $test
 	 */
 	private function ajaxExceptionStatus($method, $test, $status) {
-		$api = $this->getAPI();
-		$api->expects($this->any())
-				->method($test)
-				->will($this->returnValue(false));
+		$isLoggedIn = false;
+		$isAdminUser = false;
 
 		// isAdminUser requires isLoggedIn call to return true
 		if ($test === 'isAdminUser') {
-			$api->expects($this->any())
-				->method('isLoggedIn')
-				->will($this->returnValue(true));
+			$isLoggedIn = true;
 		}
 
-		$sec = new SecurityMiddleware($api, $this->request);
+		$sec = $this->getMiddleware($isLoggedIn, $isAdminUser);
 
 		try {
-			$sec->beforeController('\OC\AppFramework\Middleware\Security\SecurityMiddlewareTest',
-					$method);
+			$this->reader->reflect(__CLASS__, $method);
+			$sec->beforeController(__CLASS__, $method);
 		} catch (SecurityException $ex){
 			$this->assertEquals($status, $ex->getCode());
+		}
+
+		// add assertion if everything should work fine otherwise phpunit will
+		// complain
+		if ($status === 0) {
+			$this->assertTrue(true);
 		}
 	}
 
 	public function testAjaxStatusLoggedInCheck() {
 		$this->ajaxExceptionStatus(
-			'testAjaxStatusLoggedInCheck',
+			__FUNCTION__,
 			'isLoggedIn',
 			Http::STATUS_UNAUTHORIZED
 		);
@@ -119,11 +149,10 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 
 	/**
 	 * @NoCSRFRequired
-	 * @NoAdminRequired
 	 */
 	public function testAjaxNotAdminCheck() {
 		$this->ajaxExceptionStatus(
-			'testAjaxNotAdminCheck',
+			__FUNCTION__,
 			'isAdminUser',
 			Http::STATUS_FORBIDDEN
 		);
@@ -134,7 +163,7 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 */
 	public function testAjaxStatusCSRFCheck() {
 		$this->ajaxExceptionStatus(
-			'testAjaxStatusCSRFCheck',
+			__FUNCTION__,
 			'passesCSRFCheck',
 			Http::STATUS_PRECONDITION_FAILED
 		);
@@ -146,22 +175,22 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 */
 	public function testAjaxStatusAllGood() {
 		$this->ajaxExceptionStatus(
-			'testAjaxStatusAllGood',
+			__FUNCTION__,
 			'isLoggedIn',
 			0
 		);
 		$this->ajaxExceptionStatus(
-			'testAjaxStatusAllGood',
+			__FUNCTION__,
 			'isAdminUser',
 			0
 		);
 		$this->ajaxExceptionStatus(
-			'testAjaxStatusAllGood',
+			__FUNCTION__,
 			'isSubAdminUser',
 			0
 		);
 		$this->ajaxExceptionStatus(
-			'testAjaxStatusAllGood',
+			__FUNCTION__,
 			'passesCSRFCheck',
 			0
 		);
@@ -173,20 +202,14 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 * @NoCSRFRequired
 	 */
 	public function testNoChecks(){
-		$api = $this->getAPI();
-		$api->expects($this->never())
+		$this->request->expects($this->never())
 				->method('passesCSRFCheck')
-				->will($this->returnValue(true));
-		$api->expects($this->never())
-				->method('isAdminUser')
-				->will($this->returnValue(true));
-		$api->expects($this->never())
-				->method('isLoggedIn')
-				->will($this->returnValue(true));
+				->will($this->returnValue(false));
 
-		$sec = new SecurityMiddleware($api, $this->request);
-		$sec->beforeController('\OC\AppFramework\Middleware\Security\SecurityMiddlewareTest',
-				'testNoChecks');
+		$sec = $this->getMiddleware(false, false);
+
+		$this->reader->reflect(__CLASS__, __FUNCTION__);
+		$sec->beforeController(__CLASS__, __FUNCTION__);
 	}
 
 
@@ -195,43 +218,39 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 * @param string $expects
 	 */
 	private function securityCheck($method, $expects, $shouldFail=false){
-		$api = $this->getAPI();
-		$api->expects($this->once())
-				->method($expects)
-				->will($this->returnValue(!$shouldFail));
-
 		// admin check requires login
 		if ($expects === 'isAdminUser') {
-			$api->expects($this->once())
-				->method('isLoggedIn')
-				->will($this->returnValue(true));
-		}
-
-		$sec = new SecurityMiddleware($api, $this->request);
-
-		if($shouldFail){
-			$this->setExpectedException('\OC\AppFramework\Middleware\Security\SecurityException');
+			$isLoggedIn = true;
+			$isAdminUser = !$shouldFail;
 		} else {
-			$this->setExpectedException(null);
+			$isLoggedIn = !$shouldFail;
+			$isAdminUser = false;
 		}
 
-		$sec->beforeController('\OC\AppFramework\Middleware\Security\SecurityMiddlewareTest', $method);
+		$sec = $this->getMiddleware($isLoggedIn, $isAdminUser);
+
+		if($shouldFail) {
+			$this->setExpectedException('\OC\AppFramework\Middleware\Security\Exceptions\SecurityException');
+		} else {
+			$this->assertTrue(true);
+		}
+
+		$this->reader->reflect(__CLASS__, $method);
+		$sec->beforeController(__CLASS__, $method);
 	}
 
 
 	/**
 	 * @PublicPage
-	 * @expectedException \OC\AppFramework\Middleware\Security\SecurityException
+	 * @expectedException \OC\AppFramework\Middleware\Security\Exceptions\CrossSiteRequestForgeryException
 	 */
 	public function testCsrfCheck(){
-		$api = $this->getAPI();
-		$request = $this->getMock('OC\AppFramework\Http\Request', array('passesCSRFCheck'));
-		$request->expects($this->once())
+		$this->request->expects($this->once())
 			->method('passesCSRFCheck')
 			->will($this->returnValue(false));
 
-		$sec = new SecurityMiddleware($api, $request);
-		$sec->beforeController('\OC\AppFramework\Middleware\Security\SecurityMiddlewareTest', 'testCsrfCheck');
+		$this->reader->reflect(__CLASS__, __FUNCTION__);
+		$this->middleware->beforeController(__CLASS__, __FUNCTION__);
 	}
 
 
@@ -240,14 +259,12 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 * @NoCSRFRequired
 	 */
 	public function testNoCsrfCheck(){
-		$api = $this->getAPI();
-		$request = $this->getMock('OC\AppFramework\Http\Request', array('passesCSRFCheck'));
-		$request->expects($this->never())
+		$this->request->expects($this->never())
 			->method('passesCSRFCheck')
 			->will($this->returnValue(false));
 
-		$sec = new SecurityMiddleware($api, $request);
-		$sec->beforeController('\OC\AppFramework\Middleware\Security\SecurityMiddlewareTest', 'testNoCsrfCheck');
+		$this->reader->reflect(__CLASS__, __FUNCTION__);
+		$this->middleware->beforeController(__CLASS__, __FUNCTION__);
 	}
 
 
@@ -255,14 +272,12 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 * @PublicPage
 	 */
 	public function testFailCsrfCheck(){
-		$api = $this->getAPI();
-		$request = $this->getMock('OC\AppFramework\Http\Request', array('passesCSRFCheck'));
-		$request->expects($this->once())
+		$this->request->expects($this->once())
 			->method('passesCSRFCheck')
 			->will($this->returnValue(true));
 
-		$sec = new SecurityMiddleware($api, $request);
-		$sec->beforeController('\OC\AppFramework\Middleware\Security\SecurityMiddlewareTest', 'testFailCsrfCheck');
+		$this->reader->reflect(__CLASS__, __FUNCTION__);
+		$this->middleware->beforeController(__CLASS__, __FUNCTION__);
 	}
 
 
@@ -271,7 +286,7 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 * @NoAdminRequired
 	 */
 	public function testLoggedInCheck(){
-		$this->securityCheck('testLoggedInCheck', 'isLoggedIn');
+		$this->securityCheck(__FUNCTION__, 'isLoggedIn');
 	}
 
 
@@ -280,7 +295,7 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 * @NoAdminRequired
 	 */
 	public function testFailLoggedInCheck(){
-		$this->securityCheck('testFailLoggedInCheck', 'isLoggedIn', true);
+		$this->securityCheck(__FUNCTION__, 'isLoggedIn', true);
 	}
 
 
@@ -288,7 +303,7 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 * @NoCSRFRequired
 	 */
 	public function testIsAdminCheck(){
-		$this->securityCheck('testIsAdminCheck', 'isAdminUser');
+		$this->securityCheck(__FUNCTION__, 'isAdminUser');
 	}
 
 
@@ -296,7 +311,7 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 	 * @NoCSRFRequired
 	 */
 	public function testFailIsAdminCheck(){
-		$this->securityCheck('testFailIsAdminCheck', 'isAdminUser', true);
+		$this->securityCheck(__FUNCTION__, 'isAdminUser', true);
 	}
 
 
@@ -306,23 +321,85 @@ class SecurityMiddlewareTest extends \PHPUnit_Framework_TestCase {
 		$this->middleware->afterException($this->controller, 'test', $ex);
 	}
 
-
-	public function testAfterExceptionReturnsRedirect(){
-		$api = $this->getMock('OC\AppFramework\DependencyInjection\DIContainer', array(), array('test'));
-		$serverMock = $this->getMock('\OC\Server', array('getNavigationManager'));
-		$api->expects($this->once())->method('getServer')
-			->will($this->returnValue($serverMock));
-
-		$this->controller = $this->getMock('OCP\AppFramework\Controller',
-			array(), array($api, new Request()));
-
+	public function testAfterExceptionReturnsRedirectForNotLoggedInUser() {
 		$this->request = new Request(
-			array('server' => array('HTTP_ACCEPT' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')));
-		$this->middleware = new SecurityMiddleware($api, $this->request);
-		$response = $this->middleware->afterException($this->controller, 'test',
-				$this->secException);
+				[
+						'server' =>
+								[
+										'HTTP_ACCEPT' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+										'REQUEST_URI' => 'owncloud/index.php/apps/specialapp'
+								]
+				],
+				$this->getMock('\OCP\Security\ISecureRandom'),
+				$this->getMock('\OCP\IConfig')
+		);
+		$this->middleware = $this->getMiddleware(false, false);
+		$this->urlGenerator
+				->expects($this->once())
+				->method('getAbsoluteURL')
+				->with('index.php')
+				->will($this->returnValue('http://localhost/index.php'));
+		$this->logger
+				->expects($this->once())
+				->method('debug')
+				->with('Current user is not logged in');
+		$response = $this->middleware->afterException(
+				$this->controller,
+				'test',
+				new NotLoggedInException()
+		);
 
-		$this->assertTrue($response instanceof RedirectResponse);
+		$expected = new RedirectResponse('http://localhost/index.php?redirect_url=owncloud%2Findex.php%2Fapps%2Fspecialapp');
+		$this->assertEquals($expected , $response);
+	}
+
+	/**
+	 * @return array
+	 */
+	public function exceptionProvider() {
+		return [
+			[
+				new AppNotEnabledException(),
+			],
+			[
+				new CrossSiteRequestForgeryException(),
+			],
+			[
+				new NotAdminException(),
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider exceptionProvider
+	 * @param SecurityException $exception
+	 */
+	public function testAfterExceptionReturnsTemplateResponse(SecurityException $exception) {
+		$this->request = new Request(
+				[
+						'server' =>
+								[
+										'HTTP_ACCEPT' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+										'REQUEST_URI' => 'owncloud/index.php/apps/specialapp'
+								]
+				],
+				$this->getMock('\OCP\Security\ISecureRandom'),
+				$this->getMock('\OCP\IConfig')
+		);
+		$this->middleware = $this->getMiddleware(false, false);
+		$this->logger
+				->expects($this->once())
+				->method('debug')
+				->with($exception->getMessage());
+		$response = $this->middleware->afterException(
+				$this->controller,
+				'test',
+				$exception
+		);
+
+		$expected = new TemplateResponse('core', '403', ['file' => $exception->getMessage()], 'guest');
+		$expected->setStatus($exception->getCode());
+		$this->assertEquals($expected , $response);
 	}
 
 

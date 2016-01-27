@@ -1,22 +1,23 @@
 <?php
 /**
- * ownCloud
+ * @author Arthur Schiwon <blizzz@owncloud.com>
+ * @author Christopher Schäpers <kondou@ts.unde.re>
+ * @author Morris Jobke <hey@morrisjobke.de>
  *
- * @author Arthur Schiwon
- * @copyright 2012 Arthur Schiwon blizzz@owncloud.org
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
  *
  */
 
@@ -30,4 +31,76 @@
 // This means that they should be used by apps instead of the internal ownCloud classes
 namespace OCP;
 
-interface GroupInterface extends \OC_Group_Interface {}
+/**
+ * TODO actually this is a IGroupBackend
+ *
+ * @package OCP
+ * @since 4.5.0
+ */
+interface GroupInterface {
+
+	/**
+	 * Check if backend implements actions
+	 * @param int $actions bitwise-or'ed actions
+	 * @return boolean
+	 * @since 4.5.0
+	 *
+	 * Returns the supported actions as int to be
+	 * compared with \OC_Group_Backend::CREATE_GROUP etc.
+	 */
+	public function implementsActions($actions);
+
+	/**
+	 * is user in group?
+	 * @param string $uid uid of the user
+	 * @param string $gid gid of the group
+	 * @return bool
+	 * @since 4.5.0
+	 *
+	 * Checks whether the user is member of a group or not.
+	 */
+	public function inGroup($uid, $gid);
+
+	/**
+	 * Get all groups a user belongs to
+	 * @param string $uid Name of the user
+	 * @return array an array of group names
+	 * @since 4.5.0
+	 *
+	 * This function fetches all groups a user belongs to. It does not check
+	 * if the user exists at all.
+	 */
+	public function getUserGroups($uid);
+
+	/**
+	 * get a list of all groups
+	 * @param string $search
+	 * @param int $limit
+	 * @param int $offset
+	 * @return array an array of group names
+	 * @since 4.5.0
+	 *
+	 * Returns a list with all groups
+	 */
+	public function getGroups($search = '', $limit = -1, $offset = 0);
+
+	/**
+	 * check if a group exists
+	 * @param string $gid
+	 * @return bool
+	 * @since 4.5.0
+	 */
+	public function groupExists($gid);
+
+	/**
+	 * get a list of all users in a group
+	 * @param string $gid
+	 * @param string $search
+	 * @param int $limit
+	 * @param int $offset
+	 * @return array an array of user ids
+	 * @since 4.5.0
+	 */
+	public function usersInGroup($gid, $search = '', $limit = -1, $offset = 0);
+
+}

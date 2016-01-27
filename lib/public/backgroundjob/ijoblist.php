@@ -1,39 +1,61 @@
 <?php
 /**
- * Copyright (c) 2014 Robin Appelman <icewind@owncloud.com>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OCP\BackgroundJob;
 
+/**
+ * Interface IJobList
+ *
+ * @package OCP\BackgroundJob
+ * @since 7.0.0
+ */
 interface IJobList {
 	/**
 	 * Add a job to the list
 	 *
-	 * @param \OCP\BackgroundJob\IJob |string $job
+	 * @param \OCP\BackgroundJob\IJob|string $job
 	 * @param mixed $argument The argument to be passed to $job->run() when the job is exectured
-	 * @param string $job
-	 * @return void
+	 * @since 7.0.0
 	 */
 	public function add($job, $argument = null);
 
 	/**
 	 * Remove a job from the list
 	 *
-	 * @param IJob $job
+	 * @param \OCP\BackgroundJob\IJob|string $job
 	 * @param mixed $argument
-	 * @return void
+	 * @since 7.0.0
 	 */
 	public function remove($job, $argument = null);
 
 	/**
 	 * check if a job is in the list
 	 *
-	 * @param $job
+	 * @param \OCP\BackgroundJob\IJob|string $job
 	 * @param mixed $argument
 	 * @return bool
+	 * @since 7.0.0
 	 */
 	public function has($job, $argument);
 
@@ -41,19 +63,22 @@ interface IJobList {
 	 * get all jobs in the list
 	 *
 	 * @return \OCP\BackgroundJob\IJob[]
+	 * @since 7.0.0
 	 */
 	public function getAll();
 
 	/**
 	 * get the next job in the list
 	 *
-	 * @return \OCP\BackgroundJob\IJob
+	 * @return \OCP\BackgroundJob\IJob|null
+	 * @since 7.0.0
 	 */
 	public function getNext();
 
 	/**
 	 * @param int $id
-	 * @return \OCP\BackgroundJob\IJob
+	 * @return \OCP\BackgroundJob\IJob|null
+	 * @since 7.0.0
 	 */
 	public function getById($id);
 
@@ -61,7 +86,7 @@ interface IJobList {
 	 * set the job that was last ran to the current time
 	 *
 	 * @param \OCP\BackgroundJob\IJob $job
-	 * @return void
+	 * @since 7.0.0
 	 */
 	public function setLastJob($job);
 
@@ -69,6 +94,7 @@ interface IJobList {
 	 * get the id of the last ran job
 	 *
 	 * @return int
+	 * @since 7.0.0
 	 */
 	public function getLastJob();
 
@@ -76,7 +102,7 @@ interface IJobList {
 	 * set the lastRun of $job to now
 	 *
 	 * @param \OCP\BackgroundJob\IJob $job
-	 * @return void
+	 * @since 7.0.0
 	 */
 	public function setLastRun($job);
 }

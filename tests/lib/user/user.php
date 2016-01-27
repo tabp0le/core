@@ -9,10 +9,16 @@
 
 namespace Test\User;
 
-use OC\AllConfig;
 use OC\Hooks\PublicEmitter;
 
-class User extends \PHPUnit_Framework_TestCase {
+/**
+ * Class User
+ *
+ * @group DB
+ *
+ * @package Test\User
+ */
+class User extends \Test\TestCase {
 	public function testDisplayName() {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
@@ -30,6 +36,28 @@ class User extends \PHPUnit_Framework_TestCase {
 
 		$user = new \OC\User\User('foo', $backend);
 		$this->assertEquals('Foo', $user->getDisplayName());
+	}
+
+	/**
+	 * if the display name contain whitespaces only, we expect the uid as result
+	 */
+	public function testDisplayNameEmpty() {
+		/**
+		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
+		 */
+		$backend = $this->getMock('\OC_User_Backend');
+		$backend->expects($this->once())
+			->method('getDisplayName')
+			->with($this->equalTo('foo'))
+			->will($this->returnValue('  '));
+
+		$backend->expects($this->any())
+			->method('implementsActions')
+			->with($this->equalTo(\OC_USER_BACKEND_GET_DISPLAYNAME))
+			->will($this->returnValue(true));
+
+		$user = new \OC\User\User('foo', $backend);
+		$this->assertEquals('foo', $user->getDisplayName());
 	}
 
 	public function testDisplayNameNotSupported() {
@@ -53,7 +81,7 @@ class User extends \PHPUnit_Framework_TestCase {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 		 */
-		$backend = $this->getMock('\OC_User_Dummy');
+		$backend = $this->getMock('\Test\Util\User\Dummy');
 		$backend->expects($this->once())
 			->method('setPassword')
 			->with($this->equalTo('foo'), $this->equalTo('bar'));
@@ -76,7 +104,7 @@ class User extends \PHPUnit_Framework_TestCase {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 		 */
-		$backend = $this->getMock('\OC_User_Dummy');
+		$backend = $this->getMock('\Test\Util\User\Dummy');
 		$backend->expects($this->never())
 			->method('setPassword');
 
@@ -161,7 +189,7 @@ class User extends \PHPUnit_Framework_TestCase {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 		 */
-		$backend = $this->getMock('\OC_User_Dummy');
+		$backend = $this->getMock('\Test\Util\User\Dummy');
 		$backend->expects($this->once())
 			->method('deleteUser')
 			->with($this->equalTo('foo'));
@@ -174,7 +202,7 @@ class User extends \PHPUnit_Framework_TestCase {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 		 */
-		$backend = $this->getMock('\OC_User_Dummy');
+		$backend = $this->getMock('\Test\Util\User\Dummy');
 		$backend->expects($this->once())
 			->method('getHome')
 			->with($this->equalTo('foo'))
@@ -194,11 +222,18 @@ class User extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals('/home/foo', $user->getHome());
 	}
 
+	public function testGetBackendClassName() {
+		$user = new \OC\User\User('foo', new \Test\Util\User\Dummy());
+		$this->assertEquals('Dummy', $user->getBackendClassName());
+		$user = new \OC\User\User('foo', new \OC_User_Database());
+		$this->assertEquals('Database', $user->getBackendClassName());
+	}
+
 	public function testGetHomeNotSupported() {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 		 */
-		$backend = $this->getMock('\OC_User_Dummy');
+		$backend = $this->getMock('\Test\Util\User\Dummy');
 		$backend->expects($this->never())
 			->method('getHome');
 
@@ -206,17 +241,26 @@ class User extends \PHPUnit_Framework_TestCase {
 			->method('implementsActions')
 			->will($this->returnValue(false));
 
-		$allConfig = new AllConfig();
+		$allConfig = $this->getMockBuilder('\OCP\IConfig')
+			->disableOriginalConstructor()
+			->getMock();
+		$allConfig->expects($this->any())
+			->method('getUserValue')
+			->will($this->returnValue(true));
+		$allConfig->expects($this->any())
+			->method('getSystemValue')
+			->with($this->equalTo('datadirectory'))
+			->will($this->returnValue('arbitrary/path'));
 
 		$user = new \OC\User\User('foo', $backend, null, $allConfig);
-		$this->assertEquals(\OC_Config::getValue("datadirectory", \OC::$SERVERROOT . "/data") . '/foo', $user->getHome());
+		$this->assertEquals('arbitrary/path/foo', $user->getHome());
 	}
 
 	public function testCanChangePassword() {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 		 */
-		$backend = $this->getMock('\OC_User_Dummy');
+		$backend = $this->getMock('\Test\Util\User\Dummy');
 
 		$backend->expects($this->any())
 			->method('implementsActions')
@@ -236,7 +280,7 @@ class User extends \PHPUnit_Framework_TestCase {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 		 */
-		$backend = $this->getMock('\OC_User_Dummy');
+		$backend = $this->getMock('\Test\Util\User\Dummy');
 
 		$backend->expects($this->any())
 			->method('implementsActions')
@@ -250,7 +294,7 @@ class User extends \PHPUnit_Framework_TestCase {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 		 */
-		$backend = $this->getMock('\OC_User_Dummy');
+		$backend = $this->getMock('\Test\Util\User\Dummy');
 
 		$backend->expects($this->any())
 			->method('implementsActions')
@@ -270,7 +314,7 @@ class User extends \PHPUnit_Framework_TestCase {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 		 */
-		$backend = $this->getMock('\OC_User_Dummy');
+		$backend = $this->getMock('\Test\Util\User\Dummy');
 
 		$backend->expects($this->any())
 			->method('implementsActions')
@@ -298,11 +342,36 @@ class User extends \PHPUnit_Framework_TestCase {
 
 		$backend->expects($this->once())
 			->method('setDisplayName')
-			->with('foo','Foo');
+			->with('foo','Foo')
+			->willReturn(true);
 
 		$user = new \OC\User\User('foo', $backend);
 		$this->assertTrue($user->setDisplayName('Foo'));
 		$this->assertEquals('Foo',$user->getDisplayName());
+	}
+
+	/**
+	 * don't allow display names containing whitespaces only
+	 */
+	public function testSetDisplayNameEmpty() {
+		/**
+		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
+		 */
+		$backend = $this->getMock('\OC_User_Database');
+
+		$backend->expects($this->any())
+			->method('implementsActions')
+			->will($this->returnCallback(function ($actions) {
+				if ($actions === \OC_USER_BACKEND_SET_DISPLAYNAME) {
+					return true;
+				} else {
+					return false;
+				}
+			}));
+
+		$user = new \OC\User\User('foo', $backend);
+		$this->assertFalse($user->setDisplayName(' '));
+		$this->assertEquals('foo',$user->getDisplayName());
 	}
 
 	public function testSetDisplayNameNotSupported() {
@@ -332,7 +401,7 @@ class User extends \PHPUnit_Framework_TestCase {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 		 */
-		$backend = $this->getMock('\OC_User_Dummy');
+		$backend = $this->getMock('\Test\Util\User\Dummy');
 		$backend->expects($this->once())
 			->method('setPassword');
 
@@ -373,7 +442,7 @@ class User extends \PHPUnit_Framework_TestCase {
 		/**
 		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
 		 */
-		$backend = $this->getMock('\OC_User_Dummy');
+		$backend = $this->getMock('\Test\Util\User\Dummy');
 		$backend->expects($this->once())
 			->method('deleteUser');
 
@@ -392,5 +461,22 @@ class User extends \PHPUnit_Framework_TestCase {
 		$user = new \OC\User\User('foo', $backend, $emitter);
 		$this->assertTrue($user->delete());
 		$this->assertEquals(2, $hooksCalled);
+	}
+
+	public function testGetCloudId() {
+		/**
+		 * @var \OC_User_Backend | \PHPUnit_Framework_MockObject_MockObject $backend
+		 */
+		$backend = $this->getMock('\Test\Util\User\Dummy');
+		$urlGenerator = $this->getMockBuilder('\OC\URLGenerator')
+				->setMethods(['getAbsoluteURL'])
+				->disableOriginalConstructor()->getMock();
+		$urlGenerator
+				->expects($this->any())
+				->method('getAbsoluteURL')
+				->withAnyParameters()
+				->willReturn('http://localhost:8888/owncloud');
+		$user = new \OC\User\User('foo', $backend, null, null, $urlGenerator);
+		$this->assertEquals("foo@localhost:8888/owncloud", $user->getCloudId());
 	}
 }

@@ -11,48 +11,53 @@ namespace Test\Files;
 use OC\Files\Filesystem;
 use OCP\Share;
 
-class EtagTest extends \PHPUnit_Framework_TestCase {
+/**
+ * Class EtagTest
+ *
+ * @group DB
+ *
+ * @package Test\Files
+ */
+class EtagTest extends \Test\TestCase {
 	private $datadir;
 
 	private $tmpDir;
 
-	private $uid;
-
 	/**
-	 * @var \OC_User_Dummy $userBackend
+	 * @var \Test\Util\User\Dummy $userBackend
 	 */
 	private $userBackend;
 
-	public function setUp() {
+	protected function setUp() {
+		parent::setUp();
+
 		\OC_Hook::clear('OC_Filesystem', 'setup');
-		\OCP\Util::connectHook('OC_Filesystem', 'setup', '\OC\Files\Storage\Shared', 'setup');
+		$application = new \OCA\Files_Sharing\AppInfo\Application();
+		$application->registerMountProviders();
 		\OCP\Share::registerBackend('file', 'OC_Share_Backend_File');
 		\OCP\Share::registerBackend('folder', 'OC_Share_Backend_Folder', 'file');
 
-		$this->datadir = \OC_Config::getValue('datadirectory');
-		$this->tmpDir = \OC_Helper::tmpFolder();
-		\OC_Config::setValue('datadirectory', $this->tmpDir);
-		$this->uid = \OC_User::getUser();
-		\OC_User::setUserId(null);
+		$config = \OC::$server->getConfig();
+		$this->datadir = $config->getSystemValue('datadirectory');
+		$this->tmpDir = \OC::$server->getTempManager()->getTemporaryFolder();
+		$config->setSystemValue('datadirectory', $this->tmpDir);
 
-		$this->userBackend = new \OC_User_Dummy();
+		$this->userBackend = new \Test\Util\User\Dummy();
 		\OC_User::useBackend($this->userBackend);
-		\OC_Util::tearDownFS();
 	}
 
-	public function tearDown() {
-		\OC_Config::setValue('datadirectory', $this->datadir);
-		\OC_User::setUserId($this->uid);
-		\OC_Util::setupFS($this->uid);
+	protected function tearDown() {
+		\OC::$server->getConfig()->setSystemValue('datadirectory', $this->datadir);
+
+		$this->logout();
+		parent::tearDown();
 	}
 
 	public function testNewUser() {
-		$user1 = uniqid('user_');
+		$user1 = $this->getUniqueID('user_');
 		$this->userBackend->createUser($user1, '');
 
-		\OC_Util::tearDownFS();
-		\OC_User::setUserId($user1);
-		\OC_Util::setupFS($user1);
+		$this->loginAsUser($user1);
 		Filesystem::mkdir('/folder');
 		Filesystem::mkdir('/folder/subfolder');
 		Filesystem::file_put_contents('/foo.txt', 'asd');
@@ -62,7 +67,7 @@ class EtagTest extends \PHPUnit_Framework_TestCase {
 		$files = array('/foo.txt', '/folder/bar.txt', '/folder/subfolder', '/folder/subfolder/qwerty.txt');
 		$originalEtags = $this->getEtags($files);
 
-		$scanner = new \OC\Files\Utils\Scanner($user1);
+		$scanner = new \OC\Files\Utils\Scanner($user1, \OC::$server->getDatabaseConnection(), \OC::$server->getLogger());
 		$scanner->backgroundScan('/');
 
 		$newEtags = $this->getEtags($files);

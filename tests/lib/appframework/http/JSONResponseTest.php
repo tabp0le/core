@@ -5,8 +5,8 @@
  *
  * @author Bernhard Posselt
  * @author Morris Jobke
- * @copyright 2012 Bernhard Posselt nukeawhale@gmail.com
- * @copyright 2013 Morris Jobke morris.jobke@gmail.com
+ * @copyright 2012 Bernhard Posselt <dev@bernhard-posselt.com>
+ * @copyright 2013 Morris Jobke <morris.jobke@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
@@ -28,12 +28,9 @@ namespace OC\AppFramework\Http;
 
 
 use OCP\AppFramework\Http\JSONResponse;
+use OCP\AppFramework\Http;
 
-//require_once(__DIR__ . "/../classloader.php");
-
-
-
-class JSONResponseTest extends \PHPUnit_Framework_TestCase {
+class JSONResponseTest extends \Test\TestCase {
 
 	/**
 	 * @var JSONResponse
@@ -41,13 +38,14 @@ class JSONResponseTest extends \PHPUnit_Framework_TestCase {
 	private $json;
 
 	protected function setUp() {
+		parent::setUp();
 		$this->json = new JSONResponse();
 	}
 
 
 	public function testHeader() {
 		$headers = $this->json->getHeaders();
-		$this->assertEquals('application/json; charset=utf-8', $headers['Content-type']);
+		$this->assertEquals('application/json; charset=utf-8', $headers['Content-Type']);
 	}
 
 
@@ -68,22 +66,40 @@ class JSONResponseTest extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals($expected, $this->json->render());
 	}
 
+	/**
+	 * @return array
+	 */
+	public function renderDataProvider() {
+		return [
+			[
+				['test' => 'hi'], '{"test":"hi"}',
+			],
+			[
+				['<h1>test' => '<h1>hi'], '{"\u003Ch1\u003Etest":"\u003Ch1\u003Ehi"}',
+			],
+		];
+	}
 
-	public function testRender() {
-		$params = array('test' => 'hi');
-		$this->json->setData($params);
-
-		$expected = '{"test":"hi"}';
-
+	/**
+	 * @dataProvider renderDataProvider
+	 * @param array $input
+	 * @param string $expected
+	 */
+	public function testRender(array $input, $expected) {
+		$this->json->setData($input);
 		$this->assertEquals($expected, $this->json->render());
 	}
 
-
-	public function testShouldHaveXContentHeaderByDefault() {
-		$headers = $this->json->getHeaders();
-		$this->assertEquals('nosniff', $headers['X-Content-Type-Options']);
+	/**
+	 * @expectedException \Exception
+	 * @expectedExceptionMessage Could not json_encode due to invalid non UTF-8 characters in the array: array (
+	 * @requires PHP 5.5
+	 */
+	public function testRenderWithNonUtf8Encoding() {
+		$params = ['test' => hex2bin('e9')];
+		$this->json->setData($params);
+		$this->json->render();
 	}
-
 
 	public function testConstructorAllowsToSetData() {
 		$data = array('hi');
@@ -93,6 +109,15 @@ class JSONResponseTest extends \PHPUnit_Framework_TestCase {
 		$expected = '["hi"]';
 		$this->assertEquals($expected, $response->render());
 		$this->assertEquals($code, $response->getStatus());
+	}
+
+	public function testChainability() {
+		$params = array('hi', 'yo');
+		$this->json->setData($params)
+			->setStatus(Http::STATUS_NOT_FOUND);
+
+		$this->assertEquals(Http::STATUS_NOT_FOUND, $this->json->getStatus());
+		$this->assertEquals(array('hi', 'yo'), $this->json->getData());
 	}
 
 }

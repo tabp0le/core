@@ -16,24 +16,35 @@ class LongId extends \OC\Files\Storage\Temporary {
 	}
 }
 
-class Cache extends \PHPUnit_Framework_TestCase {
+/**
+ * Class Cache
+ *
+ * @group DB
+ *
+ * @package Test\Files\Cache
+ */
+class Cache extends \Test\TestCase {
 	/**
 	 * @var \OC\Files\Storage\Temporary $storage ;
 	 */
-	private $storage;
+	protected $storage;
 	/**
 	 * @var \OC\Files\Storage\Temporary $storage2 ;
 	 */
-	private $storage2;
+	protected $storage2;
 
 	/**
 	 * @var \OC\Files\Cache\Cache $cache
 	 */
-	private $cache;
+	protected $cache;
 	/**
 	 * @var \OC\Files\Cache\Cache $cache2
 	 */
-	private $cache2;
+	protected $cache2;
+
+	public function testGetNumericId() {
+		$this->assertNotNull($this->cache->getNumericStorageId());
+	}
 
 	public function testSimple() {
 		$file1 = 'foo';
@@ -94,14 +105,93 @@ class Cache extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals(array('size' => 12, 'mtime' => 15), $this->cache->get($file1));
 	}
 
-	public function testFolder() {
+	/**
+	 * @dataProvider folderDataProvider
+	 */
+	public function testFolder($folder) {
+		$file2 = $folder.'/bar';
+		$file3 = $folder.'/foo';
+		$data1 = array('size' => 100, 'mtime' => 50, 'mimetype' => 'httpd/unix-directory');
+		$fileData = array();
+		$fileData['bar'] = array('size' => 1000, 'mtime' => 20, 'mimetype' => 'foo/file');
+		$fileData['foo'] = array('size' => 20, 'mtime' => 25, 'mimetype' => 'foo/file');
+
+		$this->cache->put($folder, $data1);
+		$this->cache->put($file2, $fileData['bar']);
+		$this->cache->put($file3, $fileData['foo']);
+
+		$content = $this->cache->getFolderContents($folder);
+		$this->assertEquals(count($content), 2);
+		foreach ($content as $cachedData) {
+			$data = $fileData[$cachedData['name']];
+			foreach ($data as $name => $value) {
+				$this->assertEquals($value, $cachedData[$name]);
+			}
+		}
+
+		$file4 = $folder.'/unkownSize';
+		$fileData['unkownSize'] = array('size' => -1, 'mtime' => 25, 'mimetype' => 'foo/file');
+		$this->cache->put($file4, $fileData['unkownSize']);
+
+		$this->assertEquals(-1, $this->cache->calculateFolderSize($folder));
+
+		$fileData['unkownSize'] = array('size' => 5, 'mtime' => 25, 'mimetype' => 'foo/file');
+		$this->cache->put($file4, $fileData['unkownSize']);
+
+		$this->assertEquals(1025, $this->cache->calculateFolderSize($folder));
+
+		$this->cache->remove($file2);
+		$this->cache->remove($file3);
+		$this->cache->remove($file4);
+		$this->assertEquals(0, $this->cache->calculateFolderSize($folder));
+
+		$this->cache->remove($folder);
+		$this->assertFalse($this->cache->inCache($folder.'/foo'));
+		$this->assertFalse($this->cache->inCache($folder.'/bar'));
+	}
+
+	public function testRemoveRecursive() {
+		$folderData = array('size' => 100, 'mtime' => 50, 'mimetype' => 'httpd/unix-directory');
+		$fileData = array('size' => 1000, 'mtime' => 20, 'mimetype' => 'text/plain');
+		$folders = ['folder', 'folder/subfolder', 'folder/sub2', 'folder/sub2/sub3'];
+		$files = ['folder/foo.txt', 'folder/bar.txt', 'folder/subfolder/asd.txt', 'folder/sub2/qwerty.txt', 'folder/sub2/sub3/foo.txt'];
+
+		foreach($folders as $folder){
+			$this->cache->put($folder, $folderData);
+		}
+		foreach ($files as $file) {
+			$this->cache->put($file, $fileData);
+		}
+
+		$this->cache->remove('folder');
+		foreach ($files as $file) {
+			$this->assertFalse($this->cache->inCache($file));
+		}
+	}
+
+	public function folderDataProvider() {
+
+		return array(
+			array('folder'),
+			// that was too easy, try something harder
+			array('☺, WHITE SMILING FACE, UTF-8 hex E298BA'),
+			// what about 4 byte utf-8
+			array('😐, NEUTRAL_FACE, UTF-8 hex F09F9890'),
+			// now the crazy stuff
+			array(', UNASSIGNED PRIVATE USE, UTF-8 hex EF9890'),
+			// and my favorite
+			array('w͢͢͝h͡o͢͡ ̸͢k̵͟n̴͘ǫw̸̛s͘ ̀́w͘͢ḩ̵a҉̡͢t ̧̕h́o̵r͏̵rors̡ ̶͡͠lį̶e͟͟ ̶͝in͢ ͏t̕h̷̡͟e ͟͟d̛a͜r̕͡k̢̨ ͡h̴e͏a̷̢̡rt́͏ ̴̷͠ò̵̶f̸ u̧͘ní̛͜c͢͏o̷͏d̸͢e̡͝')
+		);
+	}
+
+	public function testEncryptedFolder() {
 		$file1 = 'folder';
 		$file2 = 'folder/bar';
 		$file3 = 'folder/foo';
 		$data1 = array('size' => 100, 'mtime' => 50, 'mimetype' => 'httpd/unix-directory');
 		$fileData = array();
-		$fileData['bar'] = array('size' => 1000, 'mtime' => 20, 'mimetype' => 'foo/file');
-		$fileData['foo'] = array('size' => 20, 'mtime' => 25, 'mimetype' => 'foo/file');
+		$fileData['bar'] = array('size' => 1000, 'encrypted' => 1, 'mtime' => 20, 'mimetype' => 'foo/file');
+		$fileData['foo'] = array('size' => 20, 'encrypted' => 1, 'mtime' => 25, 'mimetype' => 'foo/file');
 
 		$this->cache->put($file1, $data1);
 		$this->cache->put($file2, $fileData['bar']);
@@ -111,9 +201,6 @@ class Cache extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals(count($content), 2);
 		foreach ($content as $cachedData) {
 			$data = $fileData[$cachedData['name']];
-			foreach ($data as $name => $value) {
-				$this->assertEquals($value, $cachedData[$name]);
-			}
 		}
 
 		$file4 = 'folder/unkownSize';
@@ -126,52 +213,9 @@ class Cache extends \PHPUnit_Framework_TestCase {
 		$this->cache->put($file4, $fileData['unkownSize']);
 
 		$this->assertEquals(1025, $this->cache->calculateFolderSize($file1));
-
-		$this->cache->remove($file2);
-		$this->cache->remove($file3);
-		$this->cache->remove($file4);
-		$this->assertEquals(0, $this->cache->calculateFolderSize($file1));
-
-		$this->cache->remove('folder');
-		$this->assertFalse($this->cache->inCache('folder/foo'));
-		$this->assertFalse($this->cache->inCache('folder/bar'));
-	}
-
-	public function testEncryptedFolder() {
-		$file1 = 'folder';
-		$file2 = 'folder/bar';
-		$file3 = 'folder/foo';
-		$data1 = array('size' => 100, 'mtime' => 50, 'mimetype' => 'httpd/unix-directory');
-		$fileData = array();
-		$fileData['bar'] = array('size' => 1000, 'unencrypted_size' => 900, 'encrypted' => 1, 'mtime' => 20, 'mimetype' => 'foo/file');
-		$fileData['foo'] = array('size' => 20, 'unencrypted_size' => 16, 'encrypted' => 1, 'mtime' => 25, 'mimetype' => 'foo/file');
-
-		$this->cache->put($file1, $data1);
-		$this->cache->put($file2, $fileData['bar']);
-		$this->cache->put($file3, $fileData['foo']);
-
-		$content = $this->cache->getFolderContents($file1);
-		$this->assertEquals(count($content), 2);
-		foreach ($content as $cachedData) {
-			$data = $fileData[$cachedData['name']];
-			// indirect retrieval swaps  unencrypted_size and size
-			$this->assertEquals($data['unencrypted_size'], $cachedData['size']);
-		}
-
-		$file4 = 'folder/unkownSize';
-		$fileData['unkownSize'] = array('size' => -1, 'mtime' => 25, 'mimetype' => 'foo/file');
-		$this->cache->put($file4, $fileData['unkownSize']);
-
-		$this->assertEquals(-1, $this->cache->calculateFolderSize($file1));
-
-		$fileData['unkownSize'] = array('size' => 5, 'mtime' => 25, 'mimetype' => 'foo/file');
-		$this->cache->put($file4, $fileData['unkownSize']);
-
-		$this->assertEquals(916, $this->cache->calculateFolderSize($file1));
 		// direct cache entry retrieval returns the original values
 		$entry = $this->cache->get($file1);
 		$this->assertEquals(1025, $entry['size']);
-		$this->assertEquals(916, $entry['unencrypted_size']);
 
 		$this->cache->remove($file2);
 		$this->cache->remove($file3);
@@ -220,6 +264,28 @@ class Cache extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals(\OC\Files\Cache\Cache::COMPLETE, $this->cache->getStatus('foo'));
 	}
 
+	public function putWithAllKindOfQuotesData() {
+		return [
+			['`backtick`'],
+			['´forward´'],
+			['\'single\''],
+		];
+	}
+
+	/**
+	 * @dataProvider putWithAllKindOfQuotesData
+	 * @param $fileName
+	 */
+	public function testPutWithAllKindOfQuotes($fileName) {
+
+		$this->assertEquals(\OC\Files\Cache\Cache::NOT_FOUND, $this->cache->get($fileName));
+		$this->cache->put($fileName, array('size' => 20, 'mtime' => 25, 'mimetype' => 'foo/file', 'etag' => $fileName));
+
+		$cacheEntry = $this->cache->get($fileName);
+		$this->assertEquals($fileName, $cacheEntry['etag']);
+		$this->assertEquals($fileName, $cacheEntry['path']);
+	}
+
 	function testSearch() {
 		$file1 = 'folder';
 		$file2 = 'folder/foobar';
@@ -239,8 +305,76 @@ class Cache extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals(1, count($this->cache->search('folder%')));
 		$this->assertEquals(3, count($this->cache->search('%')));
 
+		// case insensitive search should match the same files
+		$this->assertEquals(2, count($this->cache->search('%Foo%')));
+		$this->assertEquals(1, count($this->cache->search('Foo')));
+		$this->assertEquals(1, count($this->cache->search('%Folder%')));
+		$this->assertEquals(1, count($this->cache->search('Folder%')));
+
 		$this->assertEquals(3, count($this->cache->searchByMime('foo')));
 		$this->assertEquals(2, count($this->cache->searchByMime('foo/file')));
+	}
+
+	function testSearchByTag() {
+		$userId = $this->getUniqueId('user');
+		\OC::$server->getUserManager()->createUser($userId, $userId);
+		$this->loginAsUser($userId);
+		$user = new \OC\User\User($userId, null);
+
+		$file1 = 'folder';
+		$file2 = 'folder/foobar';
+		$file3 = 'folder/foo';
+		$file4 = 'folder/foo2';
+		$file5 = 'folder/foo3';
+		$data1 = array('size' => 100, 'mtime' => 50, 'mimetype' => 'foo/folder');
+		$fileData = array();
+		$fileData['foobar'] = array('size' => 1000, 'mtime' => 20, 'mimetype' => 'foo/file');
+		$fileData['foo'] = array('size' => 20, 'mtime' => 25, 'mimetype' => 'foo/file');
+		$fileData['foo2'] = array('size' => 25, 'mtime' => 28, 'mimetype' => 'foo/file');
+		$fileData['foo3'] = array('size' => 88, 'mtime' => 34, 'mimetype' => 'foo/file');
+
+		$id1 = $this->cache->put($file1, $data1);
+		$id2 = $this->cache->put($file2, $fileData['foobar']);
+		$id3 = $this->cache->put($file3, $fileData['foo']);
+		$id4 = $this->cache->put($file4, $fileData['foo2']);
+		$id5 = $this->cache->put($file5, $fileData['foo3']);
+
+		$tagManager = \OC::$server->getTagManager()->load('files', null, null, $userId);
+		$this->assertTrue($tagManager->tagAs($id1, 'tag1'));
+		$this->assertTrue($tagManager->tagAs($id1, 'tag2'));
+		$this->assertTrue($tagManager->tagAs($id2, 'tag2'));
+		$this->assertTrue($tagManager->tagAs($id3, 'tag1'));
+		$this->assertTrue($tagManager->tagAs($id4, 'tag2'));
+
+		// use tag name
+		$results = $this->cache->searchByTag('tag1', $userId);
+
+		$this->assertEquals(2, count($results));
+
+		usort($results, function($value1, $value2) { return $value1['name'] >= $value2['name']; });
+
+		$this->assertEquals('folder', $results[0]['name']);
+		$this->assertEquals('foo', $results[1]['name']);
+
+		// use tag id
+		$tags = $tagManager->getTagsForUser($userId);
+		$this->assertNotEmpty($tags);
+		$tags = array_filter($tags, function($tag) { return $tag->getName() === 'tag2'; });
+		$results = $this->cache->searchByTag(current($tags)->getId(), $userId);
+		$this->assertEquals(3, count($results));
+
+		usort($results, function($value1, $value2) { return $value1['name'] >= $value2['name']; });
+
+		$this->assertEquals('folder', $results[0]['name']);
+		$this->assertEquals('foo2', $results[1]['name']);
+		$this->assertEquals('foobar', $results[2]['name']);
+
+		$tagManager->delete('tag1');
+		$tagManager->delete('tag2');
+
+		$this->logout();
+		$user = \OC::$server->getUserManager()->get($userId);
+		if ($user !== null) { $user->delete(); }
 	}
 
 	function testMove() {
@@ -313,6 +447,10 @@ class Cache extends \PHPUnit_Framework_TestCase {
 		$storageId = $this->storage->getId();
 		$data = array('size' => 1000, 'mtime' => 20, 'mimetype' => 'foo/file');
 		$id = $this->cache->put('foo', $data);
+
+		if (strlen($storageId) > 64) {
+			$storageId = md5($storageId);
+		}
 		$this->assertEquals(array($storageId, 'foo'), \OC\Files\Cache\Cache::getById($id));
 	}
 
@@ -343,7 +481,7 @@ class Cache extends \PHPUnit_Framework_TestCase {
 	}
 
 	/**
-	 * @brief this test show the bug resulting if we have no normalizer installed
+	 * this test show the bug resulting if we have no normalizer installed
 	 */
 	public function testWithoutNormalizer() {
 		// folder name "Schön" with U+00F6 (normalized)
@@ -386,7 +524,7 @@ class Cache extends \PHPUnit_Framework_TestCase {
 	}
 
 	/**
-	 * @brief this test shows that there is no bug if we use the normalizer
+	 * this test shows that there is no bug if we use the normalizer
 	 */
 	public function testWithNormalizer() {
 
@@ -418,20 +556,121 @@ class Cache extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals($folderWith00F6, $unNormalizedFolderName['name']);
 
 		// put normalized folder
-		$this->assertTrue(is_array($this->cache->get('folder/' . $folderWith00F6)));
+		$this->assertInstanceOf('\OCP\Files\Cache\ICacheEntry', $this->cache->get('folder/' . $folderWith00F6));
 		$this->assertGreaterThan(0, $this->cache->put('folder/' . $folderWith00F6, $data));
 
 		// at this point we should have only one folder named "Schön"
 		$this->assertEquals(1, count($this->cache->getFolderContents('folder')));
 	}
 
-	public function tearDown() {
-		if ($this->cache) {
-			$this->cache->clear();
+	function bogusPathNamesProvider() {
+		return array(
+			array('/bogus.txt', 'bogus.txt'),
+			array('//bogus.txt', 'bogus.txt'),
+			array('bogus/', 'bogus'),
+			array('bogus//', 'bogus'),
+		);
+	}
+
+	/**
+	 * Test bogus paths with leading or doubled slashes
+	 *
+	 * @dataProvider bogusPathNamesProvider
+	 */
+	public function testBogusPaths($bogusPath, $fixedBogusPath) {
+		$data = array('size' => 100, 'mtime' => 50, 'mimetype' => 'httpd/unix-directory');
+
+		// put root folder
+		$this->assertFalse($this->cache->get(''));
+		$parentId = $this->cache->put('', $data);
+		$this->assertGreaterThan(0, $parentId);
+
+		$this->assertGreaterThan(0, $this->cache->put($bogusPath, $data));
+
+		$newData = $this->cache->get($fixedBogusPath);
+		$this->assertNotFalse($newData);
+
+		$this->assertEquals($fixedBogusPath, $newData['path']);
+		// parent is the correct one, resolved properly (they used to not be)
+		$this->assertEquals($parentId, $newData['parent']);
+
+		$newDataFromBogus = $this->cache->get($bogusPath);
+		// same entry
+		$this->assertEquals($newData, $newDataFromBogus);
+	}
+
+	public function testNoReuseOfFileId() {
+		$data1 = array('size' => 100, 'mtime' => 50, 'mimetype' => 'text/plain');
+		$this->cache->put('somefile.txt', $data1);
+		$info = $this->cache->get('somefile.txt');
+		$fileId = $info['fileid'];
+		$this->cache->remove('somefile.txt');
+		$data2 = array('size' => 200, 'mtime' => 100, 'mimetype' => 'text/plain');
+		$this->cache->put('anotherfile.txt', $data2);
+		$info2 = $this->cache->get('anotherfile.txt');
+		$fileId2 = $info2['fileid'];
+		$this->assertNotEquals($fileId, $fileId2);
+	}
+
+	public function escapingProvider() {
+		return [
+				['foo'],
+				['o%'],
+				['oth_r'],
+		];
+	}
+
+	/**
+	 * @param string $name
+	 * @dataProvider escapingProvider
+	 */
+	public function testEscaping($name) {
+		$data = array('size' => 100, 'mtime' => 50, 'mimetype' => 'text/plain');
+		$this->cache->put($name, $data);
+		$this->assertTrue($this->cache->inCache($name));
+		$retrievedData = $this->cache->get($name);
+		foreach ($data as $key => $value) {
+			$this->assertEquals($value, $retrievedData[$key]);
+		}
+		$this->cache->move($name, $name . 'asd');
+		$this->assertFalse($this->cache->inCache($name));
+		$this->assertTrue($this->cache->inCache($name . 'asd'));
+		$this->cache->remove($name . 'asd');
+		$this->assertFalse($this->cache->inCache($name . 'asd'));
+		$folderData = array('size' => 100, 'mtime' => 50, 'mimetype' => 'httpd/unix-directory');
+		$this->cache->put($name, $folderData);
+		$this->cache->put('other', $folderData);
+		$childs = ['asd', 'bar', 'foo', 'sub/folder'];
+		$this->cache->put($name . '/sub/folder', $folderData);
+		$this->cache->put('other/sub/folder', $folderData);
+		foreach ($childs as $child) {
+			$this->cache->put($name . '/' . $child, $data);
+			$this->cache->put('other/' . $child, $data);
+			$this->assertTrue($this->cache->inCache($name . '/' . $child));
+		}
+		$this->cache->move($name, $name . 'asd');
+		foreach ($childs as $child) {
+			$this->assertTrue($this->cache->inCache($name . 'asd/' . $child));
+			$this->assertTrue($this->cache->inCache('other/' . $child));
+		}
+		foreach ($childs as $child) {
+			$this->cache->remove($name . 'asd/' . $child);
+			$this->assertFalse($this->cache->inCache($name . 'asd/' . $child));
+			$this->assertTrue($this->cache->inCache('other/' . $child));
 		}
 	}
 
-	public function setUp() {
+	protected function tearDown() {
+		if ($this->cache) {
+			$this->cache->clear();
+		}
+
+		parent::tearDown();
+	}
+
+	protected function setUp() {
+		parent::setUp();
+
 		$this->storage = new \OC\Files\Storage\Temporary(array());
 		$this->storage2 = new \OC\Files\Storage\Temporary(array());
 		$this->cache = new \OC\Files\Cache\Cache($this->storage);

@@ -4,7 +4,7 @@
  * ownCloud - App Framework
  *
  * @author Bernhard Posselt
- * @copyright 2012 Bernhard Posselt nukeawhale@gmail.com
+ * @copyright 2012 Bernhard Posselt <dev@bernhard-posselt.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
@@ -25,9 +25,10 @@
 namespace OC\AppFramework\Http;
 
 use OCP\AppFramework\Http\TemplateResponse;
+use OCP\AppFramework\Http;
 
 
-class TemplateResponseTest extends \PHPUnit_Framework_TestCase {
+class TemplateResponseTest extends \Test\TestCase {
 
 	/**
 	 * @var \OCP\AppFramework\Http\TemplateResponse
@@ -40,6 +41,8 @@ class TemplateResponseTest extends \PHPUnit_Framework_TestCase {
 	private $api;
 
 	protected function setUp() {
+		parent::setUp();
+
 		$this->api = $this->getMock('OC\AppFramework\Core\API',
 								array('getAppName'), array('test'));
 		$this->api->expects($this->any())
@@ -47,6 +50,22 @@ class TemplateResponseTest extends \PHPUnit_Framework_TestCase {
 				->will($this->returnValue('app'));
 
 		$this->tpl = new TemplateResponse($this->api, 'home');
+	}
+
+
+	public function testSetParamsConstructor(){
+		$params = array('hi' => 'yo');
+		$this->tpl = new TemplateResponse($this->api, 'home', $params);
+
+		$this->assertEquals(array('hi' => 'yo'), $this->tpl->getParams());
+	}
+
+
+	public function testSetRenderAsConstructor(){
+		$renderAs = 'myrender';
+		$this->tpl = new TemplateResponse($this->api, 'home', array(), $renderAs);
+
+		$this->assertEquals($renderAs, $this->tpl->getRenderAs());
 	}
 
 
@@ -62,40 +81,19 @@ class TemplateResponseTest extends \PHPUnit_Framework_TestCase {
 		$this->assertEquals('home', $this->tpl->getTemplateName());
 	}
 
-
-//	public function testRender(){
-//		$ocTpl = $this->getMock('Template', array('fetchPage'));
-//		$ocTpl->expects($this->once())
-//				->method('fetchPage');
-//
-//		$tpl = new TemplateResponse('core', 'error');
-//
-//		$tpl->render();
-//	}
-//
-//
-//	public function testRenderAssignsParams(){
-//		$params = array('john' => 'doe');
-//
-//		$tpl = new TemplateResponse('app', 'home');
-//		$tpl->setParams($params);
-//
-//		$tpl->render();
-//	}
-//
-//
-//	public function testRenderDifferentApp(){
-//
-//		$tpl = new TemplateResponse('app', 'home', 'app2');
-//
-//		$tpl->render();
-//	}
-
-
 	public function testGetRenderAs(){
 		$render = 'myrender';
 		$this->tpl->renderAs($render);
 		$this->assertEquals($render, $this->tpl->getRenderAs());
+	}
+
+	public function testChainability() {
+		$params = array('hi' => 'yo');
+		$this->tpl->setParams($params)
+			->setStatus(Http::STATUS_NOT_FOUND);
+
+		$this->assertEquals(Http::STATUS_NOT_FOUND, $this->tpl->getStatus());
+		$this->assertEquals(array('hi' => 'yo'), $this->tpl->getParams());
 	}
 
 }

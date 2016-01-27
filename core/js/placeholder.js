@@ -47,19 +47,23 @@
  */
 
 (function ($) {
-	$.fn.imageplaceholder = function(seed, text) {
+	$.fn.imageplaceholder = function(seed, text, size) {
 		// set optional argument "text" to value of "seed" if undefined
 		text = text || seed;
 
-		var hash = md5(seed),
-			maxRange = parseInt('ffffffffffffffffffffffffffffffff', 16),
+		var hash = md5(seed).substring(0, 4),
+			maxRange = parseInt('ffff', 16),
 			hue = parseInt(hash, 16) / maxRange * 256,
-			height = this.height();
+			height = this.height() || size || 32;
 		this.css('background-color', 'hsl(' + hue + ', 90%, 65%)');
+
+		// Placeholders are square
+		this.height(height);
+		this.width(height);
 
 		// CSS rules
 		this.css('color', '#fff');
-		this.css('font-weight', 'bold');
+		this.css('font-weight', 'normal');
 		this.css('text-align', 'center');
 
 		// calculate the height

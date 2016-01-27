@@ -4,7 +4,7 @@
  * ownCloud - App Framework
  *
  * @author Bernhard Posselt
- * @copyright 2012 Bernhard Posselt nukeawhale@gmail.com
+ * @copyright 2012 Bernhard Posselt <dev@bernhard-posselt.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
@@ -26,16 +26,19 @@ namespace OC\AppFramework\Http;
 
 use OC\AppFramework\Http;
 
-//require_once(__DIR__ . "/../classloader.php");
 
-
-
-class HttpTest extends \PHPUnit_Framework_TestCase {
+class HttpTest extends \Test\TestCase {
 
 	private $server;
+
+	/**
+	 * @var Http
+	 */
 	private $http;
 
 	protected function setUp(){
+		parent::setUp();
+
 		$this->server = array();
 		$this->http = new Http($this->server);
 	}
@@ -56,6 +59,14 @@ class HttpTest extends \PHPUnit_Framework_TestCase {
 
 	public function testEtagMatchReturnsNotModified() {
 		$http = new Http(array('HTTP_IF_NONE_MATCH' => 'hi'));
+
+		$header = $http->getStatusHeader(Http::STATUS_OK, null, 'hi');
+		$this->assertEquals('HTTP/1.1 304 Not Modified', $header);
+	}
+
+
+	public function testQuotedEtagMatchReturnsNotModified() {
+		$http = new Http(array('HTTP_IF_NONE_MATCH' => '"hi"'));
 
 		$header = $http->getStatusHeader(Http::STATUS_OK, null, 'hi');
 		$this->assertEquals('HTTP/1.1 304 Not Modified', $header);

@@ -4,8 +4,8 @@
  *
  * @author Robin Appelman
  * @author Bernhard Posselt
- * @copyright 2012 Robin Appelman icewind@owncloud.com
- * @copyright 2012 Bernhard Posselt nukeawhale@gmail.com
+ * @copyright 2012 Robin Appelman <icewind@owncloud.com>
+ * @copyright 2012 Bernhard Posselt <dev@bernhard-posselt.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
@@ -22,38 +22,39 @@
  *
  */
 
-class Test_Group extends PHPUnit_Framework_TestCase {
-	function setUp() {
+class Test_Group extends \Test\TestCase {
+	protected function setUp() {
+		parent::setUp();
 		OC_Group::clearBackends();
 		OC_User::clearBackends();
 	}
 
-	function testSingleBackend() {
-		$userBackend = new \OC_User_Dummy();
-		\OC_User::getManager()->registerBackend($userBackend);
+	public function testSingleBackend() {
+		$userBackend = new \Test\Util\User\Dummy();
+		\OC::$server->getUserManager()->registerBackend($userBackend);
 		OC_Group::useBackend(new OC_Group_Dummy());
 
-		$group1 = uniqid();
-		$group2 = uniqid();
+		$group1 = $this->getUniqueID();
+		$group2 = $this->getUniqueID();
 		OC_Group::createGroup($group1);
 		OC_Group::createGroup($group2);
 
-		$user1 = uniqid();
-		$user2 = uniqid();
+		$user1 = $this->getUniqueID();
+		$user2 = $this->getUniqueID();
 		$userBackend->createUser($user1, '');
 		$userBackend->createUser($user2, '');
 
-		$this->assertFalse(OC_Group::inGroup($user1, $group1));
-		$this->assertFalse(OC_Group::inGroup($user2, $group1));
-		$this->assertFalse(OC_Group::inGroup($user1, $group2));
-		$this->assertFalse(OC_Group::inGroup($user2, $group2));
+		$this->assertFalse(OC_Group::inGroup($user1, $group1), 'Asserting that user1 is not in group1');
+		$this->assertFalse(OC_Group::inGroup($user2, $group1), 'Asserting that user2 is not in group1');
+		$this->assertFalse(OC_Group::inGroup($user1, $group2), 'Asserting that user1 is not in group2');
+		$this->assertFalse(OC_Group::inGroup($user2, $group2), 'Asserting that user2 is not in group2');
 
 		$this->assertTrue(OC_Group::addToGroup($user1, $group1));
 
-		$this->assertTrue(OC_Group::inGroup($user1, $group1));
-		$this->assertFalse(OC_Group::inGroup($user2, $group1));
-		$this->assertFalse(OC_Group::inGroup($user1, $group2));
-		$this->assertFalse(OC_Group::inGroup($user2, $group2));
+		$this->assertTrue(OC_Group::inGroup($user1, $group1), 'Asserting that user1 is in group1');
+		$this->assertFalse(OC_Group::inGroup($user2, $group1), 'Asserting that user2 is not in group1');
+		$this->assertFalse(OC_Group::inGroup($user1, $group2), 'Asserting that user1 is not in group2');
+		$this->assertFalse(OC_Group::inGroup($user2, $group2), 'Asserting that user2 is not in group2');
 
 		$this->assertTrue(OC_Group::addToGroup($user1, $group1));
 
@@ -80,7 +81,7 @@ class Test_Group extends PHPUnit_Framework_TestCase {
 
 	public function testNoGroupsTwice() {
 		OC_Group::useBackend(new OC_Group_Dummy());
-		$group = uniqid();
+		$group = $this->getUniqueID();
 		OC_Group::createGroup($group);
 
 		$groupCopy = $group;
@@ -103,42 +104,23 @@ class Test_Group extends PHPUnit_Framework_TestCase {
 	public function testDontAddUserToNonexistentGroup() {
 		OC_Group::useBackend(new OC_Group_Dummy());
 		$groupNonExistent = 'notExistent';
-		$user = uniqid();
+		$user = $this->getUniqueID();
 
 		$this->assertEquals(false, OC_Group::addToGroup($user, $groupNonExistent));
 		$this->assertEquals(array(), OC_Group::getGroups());
 	}
 
-	public function testDisplayNamesInGroup() {
-		OC_Group::useBackend(new OC_Group_Dummy());
-		$userBackend = new \OC_User_Dummy();
-		\OC_User::getManager()->registerBackend($userBackend);
-
-		$group1 = uniqid();
-		$user1 = 'uid1';
-		$user2 = 'uid2';
-		OC_Group::createGroup($group1);
-		$userBackend->createUser($user1, '');
-		$userBackend->createUser($user2, '');
-		OC_Group::addToGroup($user1, $group1);
-		OC_Group::addToGroup($user2, $group1);
-		//Dummy backend does not support setting displaynames, uid will always
-		//be returned. This checks primarily, that the return format is okay.
-		$expected = array($user1 => $user1, $user2 => $user2);
-		$this->assertEquals($expected, OC_Group::displayNamesInGroup($group1));
-	}
-
 	public function testUsersInGroup() {
 		OC_Group::useBackend(new OC_Group_Dummy());
-		$userBackend = new \OC_User_Dummy();
-		\OC_User::getManager()->registerBackend($userBackend);
+		$userBackend = new \Test\Util\User\Dummy();
+		\OC::$server->getUserManager()->registerBackend($userBackend);
 
-		$group1 = uniqid();
-		$group2 = uniqid();
-		$group3 = uniqid();
-		$user1 = uniqid();
-		$user2 = uniqid();
-		$user3 = uniqid();
+		$group1 = $this->getUniqueID();
+		$group2 = $this->getUniqueID();
+		$group3 = $this->getUniqueID();
+		$user1 = $this->getUniqueID();
+		$user2 = $this->getUniqueID();
+		$user3 = $this->getUniqueID();
 		OC_Group::createGroup($group1);
 		OC_Group::createGroup($group2);
 		OC_Group::createGroup($group3);
@@ -158,17 +140,16 @@ class Test_Group extends PHPUnit_Framework_TestCase {
 		// FIXME: needs more parameter variation
 	}
 
-
-	function testMultiBackend() {
-		$userBackend = new \OC_User_Dummy();
-		\OC_User::getManager()->registerBackend($userBackend);
+	public function testMultiBackend() {
+		$userBackend = new \Test\Util\User\Dummy();
+		\OC::$server->getUserManager()->registerBackend($userBackend);
 		$backend1 = new OC_Group_Dummy();
 		$backend2 = new OC_Group_Dummy();
 		OC_Group::useBackend($backend1);
 		OC_Group::useBackend($backend2);
 
-		$group1 = uniqid();
-		$group2 = uniqid();
+		$group1 = $this->getUniqueID();
+		$group2 = $this->getUniqueID();
 		OC_Group::createGroup($group1);
 
 		//groups should be added to the first registered backend
@@ -185,8 +166,8 @@ class Test_Group extends PHPUnit_Framework_TestCase {
 		$this->assertTrue(OC_Group::groupExists($group1));
 		$this->assertTrue(OC_Group::groupExists($group2));
 
-		$user1 = uniqid();
-		$user2 = uniqid();
+		$user1 = $this->getUniqueID();
+		$user2 = $this->getUniqueID();
 
 		$userBackend->createUser($user1, '');
 		$userBackend->createUser($user2, '');

@@ -1,29 +1,58 @@
 <?php
 /**
- * ownCloud
+ * @author Björn Schießle <schiessle@owncloud.com>
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Jörn Friedrich Dreyer <jfd@butonic.de>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ * @author Vincent Petry <pvince81@owncloud.com>
  *
- * @author Vincent Petry
- * @copyright 2013 Vincent Petry <pvince81@owncloud.com>
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
  *
  */
-require_once __DIR__ . '/base.php';
 
-class Test_Files_Sharing_Watcher extends Test_Files_Sharing_Base {
+/**
+ * Class Test_Files_Sharing_Watcher
+ *
+ * @group DB
+ */
+class Test_Files_Sharing_Watcher extends OCA\Files_sharing\Tests\TestCase {
 
-	function setUp() {
+	/**
+	 * @var \OC\Files\Storage\Storage
+	 */
+	private $ownerStorage;
+
+	/**
+	 * @var \OC\Files\Cache\Cache
+	 */
+	private $ownerCache;
+
+	/**
+	 * @var \OC\Files\Storage\Storage
+	 */
+	private $sharedStorage;
+
+	/**
+	 * @var \OC\Files\Cache\Cache
+	 */
+	private $sharedCache;
+
+	protected function setUp() {
 		parent::setUp();
 
 		self::loginHelper(self::TEST_FILES_SHARING_API_USER1);
@@ -48,22 +77,26 @@ class Test_Files_Sharing_Watcher extends Test_Files_Sharing_Base {
 
 		// retrieve the shared storage
 		$secondView = new \OC\Files\View('/' . self::TEST_FILES_SHARING_API_USER2);
-		list($this->sharedStorage, $internalPath) = $secondView->resolvePath('files/Shared/shareddir');
+		list($this->sharedStorage, $internalPath) = $secondView->resolvePath('files/shareddir');
 		$this->sharedCache = $this->sharedStorage->getCache();
 	}
 
-	function tearDown() {
-		$this->sharedCache->clear();
+	protected function tearDown() {
+		if ($this->sharedCache) {
+			$this->sharedCache->clear();
+		}
 
 		self::loginHelper(self::TEST_FILES_SHARING_API_USER1);
 
-		$fileinfo = $this->view->getFileInfo('container/shareddir');
-		\OCP\Share::unshare('folder', $fileinfo['fileid'], \OCP\Share::SHARE_TYPE_USER,
-			self::TEST_FILES_SHARING_API_USER2);
+		if ($this->view) {
+			$fileinfo = $this->view->getFileInfo('container/shareddir');
+			\OCP\Share::unshare('folder', $fileinfo['fileid'], \OCP\Share::SHARE_TYPE_USER,
+					self::TEST_FILES_SHARING_API_USER2);
 
-		$this->view->deleteAll('container');
+			$this->view->deleteAll('container');
 
-		$this->ownerCache->clear();
+			$this->ownerCache->clear();
+		}
 
 		parent::tearDown();
 	}
@@ -77,14 +110,13 @@ class Test_Files_Sharing_Watcher extends Test_Files_Sharing_Base {
 
 		$textData = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 		$dataLen = strlen($textData);
-		$this->sharedCache->put('shareddir/bar.txt', array('storage_mtime' => 10));
-		$this->sharedStorage->file_put_contents('shareddir/bar.txt', $textData);
-		$this->sharedCache->put('shareddir', array('storage_mtime' => 10));
+		$this->sharedCache->put('bar.txt', array('mtime' => 10, 'storage_mtime' => 10, 'size' => $dataLen, 'mimetype' => 'text/plain'));
+		$this->sharedStorage->file_put_contents('bar.txt', $textData);
+		$this->sharedCache->put('', array('mtime' => 10, 'storage_mtime' => 10, 'size' => '-1', 'mimetype' => 'httpd/unix-directory'));
 
 		// run the propagation code
-		$result = $this->sharedStorage->getWatcher()->checkUpdate('shareddir');
-
-		$this->assertTrue($result);
+		$this->sharedStorage->getWatcher()->checkUpdate('');
+		$this->sharedStorage->getCache()->correctFolderSize('');
 
 		// the owner's parent dirs must have increase size
 		$newSizes = self::getOwnerDirSizes('files/container/shareddir');
@@ -94,7 +126,7 @@ class Test_Files_Sharing_Watcher extends Test_Files_Sharing_Base {
 		$this->assertEquals($initialSizes['files/container/shareddir'] + $dataLen, $newSizes['files/container/shareddir']);
 
 		// no more updates
-		$result = $this->sharedStorage->getWatcher()->checkUpdate('shareddir');
+		$result = $this->sharedStorage->getWatcher()->checkUpdate('');
 
 		$this->assertFalse($result);
 	}
@@ -108,14 +140,13 @@ class Test_Files_Sharing_Watcher extends Test_Files_Sharing_Base {
 
 		$textData = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 		$dataLen = strlen($textData);
-		$this->sharedCache->put('shareddir/subdir/bar.txt', array('storage_mtime' => 10));
-		$this->sharedStorage->file_put_contents('shareddir/subdir/bar.txt', $textData);
-		$this->sharedCache->put('shareddir/subdir', array('storage_mtime' => 10));
+		$this->sharedCache->put('subdir/bar.txt', array('mtime' => 10, 'storage_mtime' => 10, 'size' => $dataLen, 'mimetype' => 'text/plain'));
+		$this->sharedStorage->file_put_contents('subdir/bar.txt', $textData);
+		$this->sharedCache->put('subdir', array('mtime' => 10, 'storage_mtime' => 10, 'size' => $dataLen, 'mimetype' => 'text/plain'));
 
 		// run the propagation code
-		$result = $this->sharedStorage->getWatcher()->checkUpdate('shareddir/subdir');
-
-		$this->assertTrue($result);
+		$this->sharedStorage->getWatcher()->checkUpdate('subdir');
+		$this->sharedStorage->getCache()->correctFolderSize('subdir');
 
 		// the owner's parent dirs must have increase size
 		$newSizes = self::getOwnerDirSizes('files/container/shareddir/subdir');
@@ -126,20 +157,9 @@ class Test_Files_Sharing_Watcher extends Test_Files_Sharing_Base {
 		$this->assertEquals($initialSizes['files/container/shareddir/subdir'] + $dataLen, $newSizes['files/container/shareddir/subdir']);
 
 		// no more updates
-		$result = $this->sharedStorage->getWatcher()->checkUpdate('shareddir/subdir');
+		$result = $this->sharedStorage->getWatcher()->checkUpdate('subdir');
 
 		$this->assertFalse($result);
-	}
-
-	function testNoUpdateOnRoot() {
-		// no updates when called for root path
-		$result = $this->sharedStorage->getWatcher()->checkUpdate('');
-
-		$this->assertFalse($result);
-
-		// FIXME: for some reason when running this "naked" test,
-		// there will be remaining nonsensical entries in the
-		// database with a path "test-share-user1/container/..."
 	}
 
 	/**

@@ -1,57 +1,103 @@
 <?php
 /**
- * Copyright (c) 2013 Christopher Schäpers <christopher@schaepers.it>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Arthur Schiwon <blizzz@owncloud.com>
+ * @author Christopher Schäpers <kondou@ts.unde.re>
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Lukas Reschke <lukas@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ * @author Roeland Jago Douma <rullzer@owncloud.com>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
+
+namespace OC;
+
+use OC\User\User;
+use OCP\Files\Folder;
+use OCP\Files\File;
+use OCP\Files\NotFoundException;
+use OCP\IAvatar;
+use OCP\IImage;
+use OCP\IL10N;
+use OC_Image;
 
 /**
  * This class gets and sets users avatars.
  */
 
-class OC_Avatar implements \OCP\IAvatar {
-
-	private $view;
+class Avatar implements IAvatar {
+	/** @var Folder */
+	private $folder;
+	/** @var IL10N */
+	private $l;
+	/** @var User */
+	private $user;
 
 	/**
-	 * @brief constructor
-	 * @param $user string user to do avatar-management with
-	*/
-	public function __construct ($user) {
-		$this->view = new \OC\Files\View('/'.$user);
+	 * constructor
+	 *
+	 * @param Folder $folder The folder where the avatars are
+	 * @param IL10N $l
+	 * @param User $user
+	 */
+	public function __construct (Folder $folder, IL10N $l, $user) {
+		$this->folder = $folder;
+		$this->l = $l;
+		$this->user = $user;
 	}
 
 	/**
-	 * @brief get the users avatar
-	 * @param $size integer size in px of the avatar, avatars are square, defaults to 64
-	 * @return boolean|\OC_Image containing the avatar or false if there's no image
-	*/
+	 * @inheritdoc
+	 */
 	public function get ($size = 64) {
-		if ($this->view->file_exists('avatar.jpg')) {
-			$ext = 'jpg';
-		} elseif ($this->view->file_exists('avatar.png')) {
-			$ext = 'png';
-		} else {
+		try {
+			$file = $this->getFile($size);
+		} catch (NotFoundException $e) {
 			return false;
 		}
 
 		$avatar = new OC_Image();
-		$avatar->loadFromData($this->view->file_get_contents('avatar.'.$ext));
-		$avatar->resize($size);
+		$avatar->loadFromData($file->getContent());
 		return $avatar;
 	}
 
 	/**
-	 * @brief sets the users avatar
-	 * @param $data mixed OC_Image, imagedata or path to set a new avatar
-	 * @throws Exception if the provided file is not a jpg or png image
-	 * @throws Exception if the provided image is not valid
-	 * @throws \OC\NotSquareException if the image is not square
+	 * Check if an avatar exists for the user
+	 *
+	 * @return bool
+	 */
+	public function exists() {
+		return $this->folder->nodeExists('avatar.jpg') || $this->folder->nodeExists('avatar.png');
+	}
+
+	/**
+	 * sets the users avatar
+	 * @param IImage|resource|string $data An image object, imagedata or path to set a new avatar
+	 * @throws \Exception if the provided file is not a jpg or png image
+	 * @throws \Exception if the provided image is not valid
+	 * @throws NotSquareException if the image is not square
 	 * @return void
 	*/
 	public function set ($data) {
-		if($data instanceOf OC_Image) {
+
+		if($data instanceOf IImage) {
 			$img = $data;
 			$data = $img->data();
 		} else {
@@ -62,30 +108,83 @@ class OC_Avatar implements \OCP\IAvatar {
 			$type = 'jpg';
 		}
 		if ($type !== 'jpg' && $type !== 'png') {
-			$l = \OC_L10N::get('lib');
-			throw new \Exception($l->t("Unknown filetype"));
+			throw new \Exception($this->l->t("Unknown filetype"));
 		}
 
 		if (!$img->valid()) {
-			$l = \OC_L10N::get('lib');
-			throw new \Exception($l->t("Invalid image"));
+			throw new \Exception($this->l->t("Invalid image"));
 		}
 
 		if (!($img->height() === $img->width())) {
-			throw new \OC\NotSquareException();
+			throw new NotSquareException();
 		}
 
-		$this->view->unlink('avatar.jpg');
-		$this->view->unlink('avatar.png');
-		$this->view->file_put_contents('avatar.'.$type, $data);
+		$this->remove();
+		$this->folder->newFile('avatar.'.$type)->putContent($data);
+		$this->user->triggerChange();
 	}
 
 	/**
-	 * @brief remove the users avatar
+	 * remove the users avatar
 	 * @return void
 	*/
 	public function remove () {
-		$this->view->unlink('avatar.jpg');
-		$this->view->unlink('avatar.png');
+		$regex = '/^avatar\.([0-9]+\.)?(jpg|png)$/';
+		$avatars = $this->folder->search('avatar');
+
+		foreach ($avatars as $avatar) {
+			if (preg_match($regex, $avatar->getName())) {
+				$avatar->delete();
+			}
+		}
+		$this->user->triggerChange();
+	}
+
+	/**
+	 * @inheritdoc
+	 */
+	public function getFile($size) {
+		$ext = $this->getExtension();
+
+		if ($size === -1) {
+			$path = 'avatar.' . $ext;
+		} else {
+			$path = 'avatar.' . $size . '.' . $ext;
+		}
+
+		try {
+			$file = $this->folder->get($path);
+		} catch (NotFoundException $e) {
+			if ($size <= 0) {
+				throw new NotFoundException;
+			}
+
+			$avatar = new OC_Image();
+			/** @var File $file */
+			$file = $this->folder->get('avatar.' . $ext);
+			$avatar->loadFromData($file->getContent());
+			if ($size !== -1) {
+				$avatar->resize($size);
+			}
+			$file = $this->folder->newFile($path);
+			$file->putContent($avatar->data());
+		}
+
+		return $file;
+	}
+
+	/**
+	 * Get the extension of the avatar. If there is no avatar throw Exception
+	 *
+	 * @return string
+	 * @throws NotFoundException
+	 */
+	private function getExtension() {
+		if ($this->folder->nodeExists('avatar.jpg')) {
+			return 'jpg';
+		} elseif ($this->folder->nodeExists('avatar.png')) {
+			return 'png';
+		}
+		throw new NotFoundException;
 	}
 }

@@ -1,14 +1,35 @@
 <?php
 /**
- * Copyright (c) 2013 Robin Appelman <icewind@owncloud.com>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ * @author Vincent Petry <pvince81@owncloud.com>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\Files\Storage\Wrapper;
 
-class Wrapper implements \OC\Files\Storage\Storage {
+use OCP\Files\InvalidPathException;
+use OCP\Files\Storage\ILockingStorage;
+use OCP\Lock\ILockingProvider;
+
+class Wrapper implements \OC\Files\Storage\Storage, ILockingStorage {
 	/**
 	 * @var \OC\Files\Storage\Storage $storage
 	 */
@@ -361,20 +382,28 @@ class Wrapper implements \OC\Files\Storage\Storage {
 	 * get a cache instance for the storage
 	 *
 	 * @param string $path
+	 * @param \OC\Files\Storage\Storage (optional) the storage to pass to the cache
 	 * @return \OC\Files\Cache\Cache
 	 */
-	public function getCache($path = '') {
-		return $this->storage->getCache($path);
+	public function getCache($path = '', $storage = null) {
+		if (!$storage) {
+			$storage = $this;
+		}
+		return $this->storage->getCache($path, $storage);
 	}
 
 	/**
 	 * get a scanner instance for the storage
 	 *
 	 * @param string $path
+	 * @param \OC\Files\Storage\Storage (optional) the storage to pass to the scanner
 	 * @return \OC\Files\Cache\Scanner
 	 */
-	public function getScanner($path = '') {
-		return $this->storage->getScanner($path);
+	public function getScanner($path = '', $storage = null) {
+		if (!$storage) {
+			$storage = $this;
+		}
+		return $this->storage->getScanner($path, $storage);
 	}
 
 
@@ -389,23 +418,31 @@ class Wrapper implements \OC\Files\Storage\Storage {
 	}
 
 	/**
-	 * get a permissions cache instance for the cache
-	 *
-	 * @param string $path
-	 * @return \OC\Files\Cache\Permissions
-	 */
-	public function getPermissionsCache($path = '') {
-		return $this->storage->getPermissionsCache($path);
-	}
-
-	/**
 	 * get a watcher instance for the cache
 	 *
 	 * @param string $path
+	 * @param \OC\Files\Storage\Storage (optional) the storage to pass to the watcher
 	 * @return \OC\Files\Cache\Watcher
 	 */
-	public function getWatcher($path = '') {
-		return $this->storage->getWatcher($path);
+	public function getWatcher($path = '', $storage = null) {
+		if (!$storage) {
+			$storage = $this;
+		}
+		return $this->storage->getWatcher($path, $storage);
+	}
+
+	public function getPropagator($storage = null) {
+		if (!$storage) {
+			$storage = $this;
+		}
+		return $this->storage->getPropagator($storage);
+	}
+
+	public function getUpdater($storage = null) {
+		if (!$storage) {
+			$storage = $this;
+		}
+		return $this->storage->getUpdater($storage);
 	}
 
 	/**
@@ -427,6 +464,7 @@ class Wrapper implements \OC\Files\Storage\Storage {
 
 	/**
 	 * Returns true
+	 *
 	 * @return true
 	 */
 	public function test() {
@@ -435,9 +473,141 @@ class Wrapper implements \OC\Files\Storage\Storage {
 
 	/**
 	 * Returns the wrapped storage's value for isLocal()
+	 *
 	 * @return bool wrapped storage's isLocal() value
 	 */
 	public function isLocal() {
 		return $this->storage->isLocal();
+	}
+
+	/**
+	 * Check if the storage is an instance of $class or is a wrapper for a storage that is an instance of $class
+	 *
+	 * @param string $class
+	 * @return bool
+	 */
+	public function instanceOfStorage($class) {
+		return is_a($this, $class) or $this->storage->instanceOfStorage($class);
+	}
+
+	/**
+	 * Pass any methods custom to specific storage implementations to the wrapped storage
+	 *
+	 * @param string $method
+	 * @param array $args
+	 * @return mixed
+	 */
+	public function __call($method, $args) {
+		return call_user_func_array(array($this->storage, $method), $args);
+	}
+
+	/**
+	 * A custom storage implementation can return an url for direct download of a give file.
+	 *
+	 * For now the returned array can hold the parameter url - in future more attributes might follow.
+	 *
+	 * @param string $path
+	 * @return array
+	 */
+	public function getDirectDownload($path) {
+		return $this->storage->getDirectDownload($path);
+	}
+
+	/**
+	 * Get availability of the storage
+	 *
+	 * @return array [ available, last_checked ]
+	 */
+	public function getAvailability() {
+		return $this->storage->getAvailability();
+	}
+
+	/**
+	 * Set availability of the storage
+	 *
+	 * @param bool $isAvailable
+	 */
+	public function setAvailability($isAvailable) {
+		$this->storage->setAvailability($isAvailable);
+	}
+
+	/**
+	 * @param string $path the path of the target folder
+	 * @param string $fileName the name of the file itself
+	 * @return void
+	 * @throws InvalidPathException
+	 */
+	public function verifyPath($path, $fileName) {
+		$this->storage->verifyPath($path, $fileName);
+	}
+
+	/**
+	 * @param \OCP\Files\Storage $sourceStorage
+	 * @param string $sourceInternalPath
+	 * @param string $targetInternalPath
+	 * @return bool
+	 */
+	public function copyFromStorage(\OCP\Files\Storage $sourceStorage, $sourceInternalPath, $targetInternalPath) {
+		if ($sourceStorage === $this) {
+			return $this->copy($sourceInternalPath, $targetInternalPath);
+		}
+
+		return $this->storage->copyFromStorage($sourceStorage, $sourceInternalPath, $targetInternalPath);
+	}
+
+	/**
+	 * @param \OCP\Files\Storage $sourceStorage
+	 * @param string $sourceInternalPath
+	 * @param string $targetInternalPath
+	 * @return bool
+	 */
+	public function moveFromStorage(\OCP\Files\Storage $sourceStorage, $sourceInternalPath, $targetInternalPath) {
+		if ($sourceStorage === $this) {
+			return $this->rename($sourceInternalPath, $targetInternalPath);
+		}
+
+		return $this->storage->moveFromStorage($sourceStorage, $sourceInternalPath, $targetInternalPath);
+	}
+
+	/**
+	 * @param string $path
+	 * @return array
+	 */
+	public function getMetaData($path) {
+		return $this->storage->getMetaData($path);
+	}
+
+	/**
+	 * @param string $path
+	 * @param int $type \OCP\Lock\ILockingProvider::LOCK_SHARED or \OCP\Lock\ILockingProvider::LOCK_EXCLUSIVE
+	 * @param \OCP\Lock\ILockingProvider $provider
+	 * @throws \OCP\Lock\LockedException
+	 */
+	public function acquireLock($path, $type, ILockingProvider $provider) {
+		if ($this->storage->instanceOfStorage('\OCP\Files\Storage\ILockingStorage')) {
+			$this->storage->acquireLock($path, $type, $provider);
+		}
+	}
+
+	/**
+	 * @param string $path
+	 * @param int $type \OCP\Lock\ILockingProvider::LOCK_SHARED or \OCP\Lock\ILockingProvider::LOCK_EXCLUSIVE
+	 * @param \OCP\Lock\ILockingProvider $provider
+	 */
+	public function releaseLock($path, $type, ILockingProvider $provider) {
+		if ($this->storage->instanceOfStorage('\OCP\Files\Storage\ILockingStorage')) {
+			$this->storage->releaseLock($path, $type, $provider);
+		}
+	}
+
+	/**
+	 * @param string $path
+	 * @param int $type \OCP\Lock\ILockingProvider::LOCK_SHARED or \OCP\Lock\ILockingProvider::LOCK_EXCLUSIVE
+	 * @param \OCP\Lock\ILockingProvider $provider
+	 */
+	public function changeLock($path, $type, ILockingProvider $provider) {
+		if ($this->storage->instanceOfStorage('\OCP\Files\Storage\ILockingStorage')) {
+			$this->storage->changeLock($path, $type, $provider);
+		}
 	}
 }

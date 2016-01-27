@@ -1,9 +1,24 @@
 <?php
 /**
- * Copyright (c) 2013 Robin Appelman <icewind@owncloud.com>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\Files\Node;
@@ -16,7 +31,7 @@ class File extends Node implements \OCP\Files\File {
 	 * @throws \OCP\Files\NotPermittedException
 	 */
 	public function getContent() {
-		if ($this->checkPermissions(\OCP\PERMISSION_READ)) {
+		if ($this->checkPermissions(\OCP\Constants::PERMISSION_READ)) {
 			/**
 			 * @var \OC\Files\Storage\Storage $storage;
 			 */
@@ -31,20 +46,14 @@ class File extends Node implements \OCP\Files\File {
 	 * @throws \OCP\Files\NotPermittedException
 	 */
 	public function putContent($data) {
-		if ($this->checkPermissions(\OCP\PERMISSION_UPDATE)) {
+		if ($this->checkPermissions(\OCP\Constants::PERMISSION_UPDATE)) {
 			$this->sendHooks(array('preWrite'));
 			$this->view->file_put_contents($this->path, $data);
+			$this->fileInfo = null;
 			$this->sendHooks(array('postWrite'));
 		} else {
 			throw new NotPermittedException();
 		}
-	}
-
-	/**
-	 * @return string
-	 */
-	public function getMimeType() {
-		return $this->view->getMimeType($this->path);
 	}
 
 	/**
@@ -55,7 +64,7 @@ class File extends Node implements \OCP\Files\File {
 	public function fopen($mode) {
 		$preHooks = array();
 		$postHooks = array();
-		$requiredPermissions = \OCP\PERMISSION_READ;
+		$requiredPermissions = \OCP\Constants::PERMISSION_READ;
 		switch ($mode) {
 			case 'r+':
 			case 'rb+':
@@ -73,7 +82,7 @@ class File extends Node implements \OCP\Files\File {
 			case 'ab':
 				$preHooks[] = 'preWrite';
 				$postHooks[] = 'postWrite';
-				$requiredPermissions |= \OCP\PERMISSION_UPDATE;
+				$requiredPermissions |= \OCP\Constants::PERMISSION_UPDATE;
 				break;
 		}
 
@@ -88,12 +97,14 @@ class File extends Node implements \OCP\Files\File {
 	}
 
 	public function delete() {
-		if ($this->checkPermissions(\OCP\PERMISSION_DELETE)) {
+		if ($this->checkPermissions(\OCP\Constants::PERMISSION_DELETE)) {
 			$this->sendHooks(array('preDelete'));
+			$fileInfo = $this->getFileInfo();
 			$this->view->unlink($this->path);
-			$nonExisting = new NonExistingFile($this->root, $this->view, $this->path);
+			$nonExisting = new NonExistingFile($this->root, $this->view, $this->path, $fileInfo);
 			$this->root->emit('\OC\Files', 'postDelete', array($nonExisting));
 			$this->exists = false;
+			$this->fileInfo = null;
 		} else {
 			throw new NotPermittedException();
 		}
@@ -138,6 +149,7 @@ class File extends Node implements \OCP\Files\File {
 			$this->root->emit('\OC\Files', 'postRename', array($this, $targetNode));
 			$this->root->emit('\OC\Files', 'postWrite', array($targetNode));
 			$this->path = $targetPath;
+			$this->fileInfo = null;
 			return $targetNode;
 		} else {
 			throw new NotPermittedException();

@@ -1,28 +1,69 @@
 <?php
 /**
- * Copyright (c) 2014 Robin Appelman <icewind@owncloud.com>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OCP\BackgroundJob;
+use OCP\ILogger;
 
+/**
+ * Interface IJob
+ *
+ * @package OCP\BackgroundJob
+ * @since 7.0.0
+ */
 interface IJob {
 	/**
 	 * Run the background job with the registered argument
 	 *
 	 * @param \OCP\BackgroundJob\IJobList $jobList The job list that manages the state of this job
-	 * @param \OC\Log $logger
-	 * @return void
+	 * @param ILogger $logger
+	 * @since 7.0.0
 	 */
-	public function execute($jobList, $logger = null);
+	public function execute($jobList, ILogger $logger = null);
+
+	/**
+	 * @param int $id
+	 * @since 7.0.0
+	 */
+	public function setId($id);
+
+	/**
+	 * @param int $lastRun
+	 * @since 7.0.0
+	 */
+	public function setLastRun($lastRun);
+
+	/**
+	 * @param mixed $argument
+	 * @since 7.0.0
+	 */
+	public function setArgument($argument);
 
 	/**
 	 * Get the id of the background job
 	 * This id is determined by the job list when a job is added to the list
 	 *
 	 * @return int
+	 * @since 7.0.0
 	 */
 	public function getId();
 
@@ -30,6 +71,7 @@ interface IJob {
 	 * Get the last time this job was run as unix timestamp
 	 *
 	 * @return int
+	 * @since 7.0.0
 	 */
 	public function getLastRun();
 
@@ -38,6 +80,7 @@ interface IJob {
 	 * This is the argument that will be passed to the background job
 	 *
 	 * @return mixed
+	 * @since 7.0.0
 	 */
 	public function getArgument();
 }

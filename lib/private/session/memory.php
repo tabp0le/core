@@ -1,9 +1,27 @@
 <?php
 /**
- * Copyright (c) 2013 Robin Appelman <icewind@owncloud.com>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Jörn Friedrich Dreyer <jfd@butonic.de>
+ * @author Lukas Reschke <lukas@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Phil Davis <phil.davis@inf.org>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\Session;
@@ -28,6 +46,7 @@ class Memory extends Session {
 	 * @param integer $value
 	 */
 	public function set($key, $value) {
+		$this->validateSession();
 		$this->data[$key] = $value;
 	}
 
@@ -54,10 +73,36 @@ class Memory extends Session {
 	 * @param string $key
 	 */
 	public function remove($key) {
+		$this->validateSession();
 		unset($this->data[$key]);
 	}
 
 	public function clear() {
 		$this->data = array();
+	}
+
+	/**
+	 * Stub since the session ID does not need to get regenerated for the cache
+	 *
+	 * @param bool $deleteOldSession
+	 */
+	public function regenerateId($deleteOldSession = true) {}
+
+	/**
+	 * Helper function for PHPUnit execution - don't use in non-test code
+	 */
+	public function reopen() {
+		$this->sessionClosed = false;
+	}
+
+	/**
+	 * In case the session has already been locked an exception will be thrown
+	 *
+	 * @throws \Exception
+	 */
+	private function validateSession() {
+		if ($this->sessionClosed) {
+			throw new \Exception('Session has been closed - no further changes to the session are allowed');
+		}
 	}
 }

@@ -8,360 +8,301 @@
 
 namespace Test\Files\Cache;
 
-use \OC\Files\Filesystem as Filesystem;
+use OC\Files\Filesystem;
 use OC\Files\Storage\Temporary;
+use OC\Files\View;
 
-class Updater extends \PHPUnit_Framework_TestCase {
+/**
+ * Class Updater
+ *
+ * @group DB
+ *
+ * @package Test\Files\Cache
+ */
+class Updater extends \Test\TestCase {
 	/**
-	 * @var \OC\Files\Storage\Storage $storage
+	 * @var \OC\Files\Storage\Storage
 	 */
-	private $storage;
+	protected $storage;
 
 	/**
-	 * @var \OC\Files\Cache\Scanner $scanner
+	 * @var \OC\Files\Cache\Cache
 	 */
-	private $scanner;
-
-	private $stateFilesEncryption;
+	protected $cache;
 
 	/**
-	 * @var \OC\Files\Cache\Cache $cache
+	 * @var \OC\Files\View
 	 */
-	private $cache;
+	protected $view;
 
-	private static $user;
+	/**
+	 * @var \OC\Files\Cache\Updater
+	 */
+	protected $updater;
 
-	public function setUp() {
+	protected function setUp() {
+		parent::setUp();
 
-		// remember files_encryption state
-		$this->stateFilesEncryption = \OC_App::isEnabled('files_encryption');
-		// we want to tests with the encryption app disabled
-		\OC_App::disable('files_encryption');
+		$this->loginAsUser();
 
-		$this->storage = new \OC\Files\Storage\Temporary(array());
-		$textData = "dummy file data\n";
-		$imgData = file_get_contents(\OC::$SERVERROOT . '/core/img/logo.png');
-		$this->storage->mkdir('folder');
-		$this->storage->file_put_contents('foo.txt', $textData);
-		$this->storage->file_put_contents('foo.png', $imgData);
-		$this->storage->file_put_contents('folder/bar.txt', $textData);
-		$this->storage->file_put_contents('folder/bar2.txt', $textData);
-
-		$this->scanner = $this->storage->getScanner();
-		$this->scanner->scan('');
+		$this->storage = new Temporary(array());
+		$this->updater = $this->storage->getUpdater();
 		$this->cache = $this->storage->getCache();
+	}
 
-		\OC\Files\Filesystem::tearDown();
-		if (!self::$user) {
-			self::$user = uniqid();
-		}
-
-		\OC_User::createUser(self::$user, 'password');
-		\OC_User::setUserId(self::$user);
-
-		\OC\Files\Filesystem::init(self::$user, '/' . self::$user . '/files');
-
+	protected function tearDown() {
 		Filesystem::clearMounts();
-		Filesystem::mount($this->storage, array(), '/' . self::$user . '/files');
 
-		\OC_Hook::clear('OC_Filesystem');
-
-		\OC_Hook::connect('OC_Filesystem', 'post_write', '\OC\Files\Cache\Updater', 'writeHook');
-		\OC_Hook::connect('OC_Filesystem', 'post_delete', '\OC\Files\Cache\Updater', 'deleteHook');
-		\OC_Hook::connect('OC_Filesystem', 'post_rename', '\OC\Files\Cache\Updater', 'renameHook');
-		\OC_Hook::connect('OC_Filesystem', 'post_touch', '\OC\Files\Cache\Updater', 'touchHook');
+		$this->logout();
+		parent::tearDown();
 	}
 
-	public function tearDown() {
-		if ($this->cache) {
-			$this->cache->clear();
-		}
-		$result = \OC_User::deleteUser(self::$user);
-		$this->assertTrue($result);
-		Filesystem::tearDown();
-		// reset app files_encryption
-		if ($this->stateFilesEncryption) {
-			\OC_App::enable('files_encryption');
-		}
-	}
+	public function testNewFile() {
+		$this->storage->file_put_contents('foo.txt', 'bar');
+		$this->assertFalse($this->cache->inCache('foo.txt'));
 
-	public function testWrite() {
-		$textSize = strlen("dummy file data\n");
-		$imageSize = filesize(\OC::$SERVERROOT . '/core/img/logo.png');
-		$this->cache->put('foo.txt', array('mtime' => 100, 'storage_mtime' => 150));
-		$rootCachedData = $this->cache->get('');
-		$this->assertEquals(3 * $textSize + $imageSize, $rootCachedData['size']);
-
-		$fooCachedData = $this->cache->get('foo.txt');
-		Filesystem::file_put_contents('foo.txt', 'asd');
-		$cachedData = $this->cache->get('foo.txt');
-		$this->assertEquals(3, $cachedData['size']);
-		$this->assertInternalType('string', $fooCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($fooCachedData['etag'], $cachedData['etag']);
-		$cachedData = $this->cache->get('');
-		$this->assertEquals(2 * $textSize + $imageSize + 3, $cachedData['size']);
-		$this->assertInternalType('string', $rootCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($rootCachedData['etag'], $cachedData['etag']);
-		$rootCachedData = $cachedData;
-
-		$this->assertFalse($this->cache->inCache('bar.txt'));
-		Filesystem::file_put_contents('bar.txt', 'asd');
-		$this->assertTrue($this->cache->inCache('bar.txt'));
-		$cachedData = $this->cache->get('bar.txt');
-		$this->assertEquals(3, $cachedData['size']);
-		$mtime = $cachedData['mtime'];
-		$cachedData = $this->cache->get('');
-		$this->assertEquals(2 * $textSize + $imageSize + 2 * 3, $cachedData['size']);
-		$this->assertInternalType('string', $rootCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($rootCachedData['etag'], $cachedData['etag']);
-		$this->assertGreaterThanOrEqual($rootCachedData['mtime'], $mtime);
-	}
-
-	public function testWriteWithMountPoints() {
-		$storage2 = new \OC\Files\Storage\Temporary(array());
-		$storage2->getScanner()->scan(''); //initialize etags
-		$cache2 = $storage2->getCache();
-		Filesystem::mount($storage2, array(), '/' . self::$user . '/files/folder/substorage');
-		$folderCachedData = $this->cache->get('folder');
-		$substorageCachedData = $cache2->get('');
-		Filesystem::file_put_contents('folder/substorage/foo.txt', 'asd');
-		$this->assertTrue($cache2->inCache('foo.txt'));
-		$cachedData = $cache2->get('foo.txt');
-		$this->assertEquals(3, $cachedData['size']);
-		$mtime = $cachedData['mtime'];
-
-		$cachedData = $cache2->get('');
-		$this->assertInternalType('string', $substorageCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($substorageCachedData['etag'], $cachedData['etag']);
-		$this->assertEquals($mtime, $cachedData['mtime']);
-
-		$cachedData = $this->cache->get('folder');
-		$this->assertInternalType('string', $folderCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($folderCachedData['etag'], $cachedData['etag']);
-		$this->assertEquals($mtime, $cachedData['mtime']);
-	}
-
-	public function testDelete() {
-		$textSize = strlen("dummy file data\n");
-		$imageSize = filesize(\OC::$SERVERROOT . '/core/img/logo.png');
-		$rootCachedData = $this->cache->get('');
-		$this->assertEquals(3 * $textSize + $imageSize, $rootCachedData['size']);
+		$this->updater->update('foo.txt');
 
 		$this->assertTrue($this->cache->inCache('foo.txt'));
-		Filesystem::unlink('foo.txt');
-		$this->assertFalse($this->cache->inCache('foo.txt'));
-		$cachedData = $this->cache->get('');
-		$this->assertEquals(2 * $textSize + $imageSize, $cachedData['size']);
-		$this->assertInternalType('string', $rootCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($rootCachedData['etag'], $cachedData['etag']);
-		$this->assertGreaterThanOrEqual($rootCachedData['mtime'], $cachedData['mtime']);
-		$rootCachedData = $cachedData;
-
-		Filesystem::mkdir('bar_folder');
-		$this->assertTrue($this->cache->inCache('bar_folder'));
-		$cachedData = $this->cache->get('');
-		$this->assertInternalType('string', $rootCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($rootCachedData['etag'], $cachedData['etag']);
-		$rootCachedData = $cachedData;
-		Filesystem::rmdir('bar_folder');
-		$this->assertFalse($this->cache->inCache('bar_folder'));
-		$cachedData = $this->cache->get('');
-		$this->assertInternalType('string', $rootCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($rootCachedData['etag'], $cachedData['etag']);
-		$this->assertGreaterThanOrEqual($rootCachedData['mtime'], $cachedData['mtime']);
+		$cached = $this->cache->get('foo.txt');
+		$this->assertEquals(3, $cached['size']);
+		$this->assertEquals('text/plain', $cached['mimetype']);
 	}
 
-	public function testDeleteWithMountPoints() {
-		$storage2 = new \OC\Files\Storage\Temporary(array());
-		$cache2 = $storage2->getCache();
-		Filesystem::mount($storage2, array(), '/' . self::$user . '/files/folder/substorage');
-		Filesystem::file_put_contents('folder/substorage/foo.txt', 'asd');
-		$this->assertTrue($cache2->inCache('foo.txt'));
-		$folderCachedData = $this->cache->get('folder');
-		$substorageCachedData = $cache2->get('');
-		Filesystem::unlink('folder/substorage/foo.txt');
-		$this->assertFalse($cache2->inCache('foo.txt'));
+	public function testUpdatedFile() {
+		$this->storage->file_put_contents('foo.txt', 'bar');
+		$this->updater->update('foo.txt');
 
-		$cachedData = $cache2->get('');
-		$this->assertInternalType('string', $substorageCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($substorageCachedData['etag'], $cachedData['etag']);
-		$this->assertGreaterThanOrEqual($substorageCachedData['mtime'], $cachedData['mtime']);
+		$cached = $this->cache->get('foo.txt');
+		$this->assertEquals(3, $cached['size']);
+		$this->assertEquals('text/plain', $cached['mimetype']);
 
-		$cachedData = $this->cache->get('folder');
-		$this->assertInternalType('string', $folderCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($folderCachedData['etag'], $cachedData['etag']);
-		$this->assertGreaterThanOrEqual($folderCachedData['mtime'], $cachedData['mtime']);
+		$this->storage->file_put_contents('foo.txt', 'qwerty');
+
+		$cached = $this->cache->get('foo.txt');
+		$this->assertEquals(3, $cached['size']);
+
+		$this->updater->update('/foo.txt');
+
+		$cached = $this->cache->get('foo.txt');
+		$this->assertEquals(6, $cached['size']);
 	}
 
-	public function testRename() {
-		$textSize = strlen("dummy file data\n");
-		$imageSize = filesize(\OC::$SERVERROOT . '/core/img/logo.png');
-		$rootCachedData = $this->cache->get('');
-		$this->assertEquals(3 * $textSize + $imageSize, $rootCachedData['size']);
+	public function testParentSize() {
+		$this->storage->getScanner()->scan('');
+
+		$parentCached = $this->cache->get('');
+		$this->assertEquals(0, $parentCached['size']);
+
+		$this->storage->file_put_contents('foo.txt', 'bar');
+
+		$parentCached = $this->cache->get('');
+		$this->assertEquals(0, $parentCached['size']);
+
+		$this->updater->update('foo.txt');
+
+		$parentCached = $this->cache->get('');
+		$this->assertEquals(3, $parentCached['size']);
+
+		$this->storage->file_put_contents('foo.txt', 'qwerty');
+
+		$parentCached = $this->cache->get('');
+		$this->assertEquals(3, $parentCached['size']);
+
+		$this->updater->update('foo.txt');
+
+		$parentCached = $this->cache->get('');
+		$this->assertEquals(6, $parentCached['size']);
+
+		$this->storage->unlink('foo.txt');
+
+		$parentCached = $this->cache->get('');
+		$this->assertEquals(6, $parentCached['size']);
+
+		$this->updater->remove('foo.txt');
+
+		$parentCached = $this->cache->get('');
+		$this->assertEquals(0, $parentCached['size']);
+	}
+
+	public function testMove() {
+		$this->storage->file_put_contents('foo.txt', 'qwerty');
+		$this->updater->update('foo.txt');
 
 		$this->assertTrue($this->cache->inCache('foo.txt'));
-		$fooCachedData = $this->cache->get('foo.txt');
 		$this->assertFalse($this->cache->inCache('bar.txt'));
-		Filesystem::rename('foo.txt', 'bar.txt');
+		$cached = $this->cache->get('foo.txt');
+
+		$this->storage->rename('foo.txt', 'bar.txt');
+
+		$this->assertTrue($this->cache->inCache('foo.txt'));
+		$this->assertFalse($this->cache->inCache('bar.txt'));
+
+		$this->updater->renameFromStorage($this->storage, 'foo.txt', 'bar.txt');
+
 		$this->assertFalse($this->cache->inCache('foo.txt'));
 		$this->assertTrue($this->cache->inCache('bar.txt'));
-		$cachedData = $this->cache->get('bar.txt');
-		$this->assertEquals($fooCachedData['fileid'], $cachedData['fileid']);
-		$mtime = $cachedData['mtime'];
-		$cachedData = $this->cache->get('');
-		$this->assertEquals(3 * $textSize + $imageSize, $cachedData['size']);
-		$this->assertInternalType('string', $rootCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($rootCachedData['etag'], $cachedData['etag']);
+
+		$cachedTarget = $this->cache->get('bar.txt');
+		$this->assertEquals($cached['etag'], $cachedTarget['etag']);
+		$this->assertEquals($cached['mtime'], $cachedTarget['mtime']);
+		$this->assertEquals($cached['size'], $cachedTarget['size']);
+		$this->assertEquals($cached['fileid'], $cachedTarget['fileid']);
 	}
 
-	public function testRenameExtension() {
-		$fooCachedData = $this->cache->get('foo.txt');
-		$this->assertEquals('text/plain', $fooCachedData['mimetype']);
-		Filesystem::rename('foo.txt', 'foo.abcd');
-		$fooCachedData = $this->cache->get('foo.abcd');
-		$this->assertEquals('application/octet-stream', $fooCachedData['mimetype']);
+	public function testMoveNonExistingOverwrite() {
+		$this->storage->file_put_contents('bar.txt', 'qwerty');
+		$this->updater->update('bar.txt');
+
+		$cached = $this->cache->get('bar.txt');
+
+		$this->updater->renameFromStorage($this->storage, 'foo.txt', 'bar.txt');
+
+		$this->assertFalse($this->cache->inCache('foo.txt'));
+		$this->assertTrue($this->cache->inCache('bar.txt'));
+
+		$cachedTarget = $this->cache->get('bar.txt');
+		$this->assertEquals($cached['etag'], $cachedTarget['etag']);
+		$this->assertEquals($cached['mtime'], $cachedTarget['mtime']);
+		$this->assertEquals($cached['size'], $cachedTarget['size']);
+		$this->assertEquals($cached['fileid'], $cachedTarget['fileid']);
 	}
 
-	public function testRenameWithMountPoints() {
-		$storage2 = new \OC\Files\Storage\Temporary(array());
+	public function testUpdateStorageMTime() {
+		$this->storage->mkdir('sub');
+		$this->storage->mkdir('sub2');
+		$this->storage->file_put_contents('sub/foo.txt', 'qwerty');
+
+		$this->updater->update('sub');
+		$this->updater->update('sub/foo.txt');
+		$this->updater->update('sub2');
+
+		$cachedSourceParent = $this->cache->get('sub');
+		$cachedSource = $this->cache->get('sub/foo.txt');
+
+		$this->storage->rename('sub/foo.txt', 'sub2/bar.txt');
+
+		// simulate storage having a different mtime
+		$testmtime = 1433323578;
+
+		// source storage mtime change
+		$this->storage->touch('sub', $testmtime);
+
+		// target storage mtime change
+		$this->storage->touch('sub2', $testmtime);
+		// some storages (like Dropbox) change storage mtime on rename
+		$this->storage->touch('sub2/bar.txt', $testmtime);
+
+		$this->updater->renameFromStorage($this->storage, 'sub/foo.txt', 'sub2/bar.txt');
+
+		$cachedTargetParent = $this->cache->get('sub2');
+		$cachedTarget = $this->cache->get('sub2/bar.txt');
+
+		$this->assertEquals($cachedSource['mtime'], $cachedTarget['mtime'], 'file mtime preserved');
+
+		$this->assertNotEquals($cachedTarget['storage_mtime'], $cachedTarget['mtime'], 'mtime is not storage_mtime for moved file');
+
+		$this->assertEquals($testmtime, $cachedTarget['storage_mtime'], 'target file storage_mtime propagated');
+		$this->assertNotEquals($testmtime, $cachedTarget['mtime'], 'target file mtime changed, not from storage');
+
+		$this->assertEquals($testmtime, $cachedTargetParent['storage_mtime'], 'target parent storage_mtime propagated');
+		$this->assertNotEquals($testmtime, $cachedTargetParent['mtime'], 'target folder mtime changed, not from storage');
+	}
+
+	public function testNewFileDisabled() {
+		$this->storage->file_put_contents('foo.txt', 'bar');
+		$this->assertFalse($this->cache->inCache('foo.txt'));
+
+		$this->updater->disable();
+		$this->updater->update('/foo.txt');
+
+		$this->assertFalse($this->cache->inCache('foo.txt'));
+	}
+
+	public function testMoveCrossStorage() {
+		$storage2 = new Temporary(array());
 		$cache2 = $storage2->getCache();
-		Filesystem::mount($storage2, array(), '/' . self::$user . '/files/folder/substorage');
-		Filesystem::file_put_contents('folder/substorage/foo.txt', 'asd');
-		$this->assertTrue($cache2->inCache('foo.txt'));
-		$folderCachedData = $this->cache->get('folder');
-		$substorageCachedData = $cache2->get('');
-		$fooCachedData = $cache2->get('foo.txt');
-		Filesystem::rename('folder/substorage/foo.txt', 'folder/substorage/bar.txt');
-		$this->assertFalse($cache2->inCache('foo.txt'));
+		Filesystem::mount($storage2, array(), '/bar');
+		$this->storage->file_put_contents('foo.txt', 'qwerty');
+
+		$this->updater->update('foo.txt');
+
+		$this->assertTrue($this->cache->inCache('foo.txt'));
+		$this->assertFalse($cache2->inCache('bar.txt'));
+		$cached = $this->cache->get('foo.txt');
+
+		// "rename"
+		$storage2->file_put_contents('bar.txt', 'qwerty');
+		$this->storage->unlink('foo.txt');
+
+		$this->assertTrue($this->cache->inCache('foo.txt'));
+		$this->assertFalse($cache2->inCache('bar.txt'));
+
+		$storage2->getUpdater()->renameFromStorage($this->storage, 'foo.txt', 'bar.txt');
+
+		$this->assertFalse($this->cache->inCache('foo.txt'));
 		$this->assertTrue($cache2->inCache('bar.txt'));
-		$cachedData = $cache2->get('bar.txt');
-		$this->assertEquals($fooCachedData['fileid'], $cachedData['fileid']);
-		$mtime = $cachedData['mtime'];
 
-		$cachedData = $cache2->get('');
-		$this->assertInternalType('string', $substorageCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($substorageCachedData['etag'], $cachedData['etag']);
-		// rename can cause mtime change - invalid assert
-//		$this->assertEquals($mtime, $cachedData['mtime']);
-
-		$cachedData = $this->cache->get('folder');
-		$this->assertInternalType('string', $folderCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($folderCachedData['etag'], $cachedData['etag']);
-		// rename can cause mtime change - invalid assert
-//		$this->assertEquals($mtime, $cachedData['mtime']);
+		$cachedTarget = $cache2->get('bar.txt');
+		$this->assertEquals($cached['mtime'], $cachedTarget['mtime']);
+		$this->assertEquals($cached['size'], $cachedTarget['size']);
+		$this->assertEquals($cached['etag'], $cachedTarget['etag']);
+		$this->assertEquals($cached['fileid'], $cachedTarget['fileid']);
 	}
 
-	public function testTouch() {
-		$rootCachedData = $this->cache->get('');
-		$fooCachedData = $this->cache->get('foo.txt');
-		Filesystem::touch('foo.txt');
-		$cachedData = $this->cache->get('foo.txt');
-		$this->assertInternalType('string', $fooCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($fooCachedData['etag'], $cachedData['etag']);
-		$this->assertGreaterThanOrEqual($fooCachedData['mtime'], $cachedData['mtime']);
-
-		$cachedData = $this->cache->get('');
-		$this->assertInternalType('string', $rootCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($rootCachedData['etag'], $cachedData['etag']);
-		$this->assertGreaterThanOrEqual($rootCachedData['mtime'], $cachedData['mtime']);
-		$rootCachedData = $cachedData;
-
-		$time = 1371006070;
-		$barCachedData = $this->cache->get('folder/bar.txt');
-		$folderCachedData = $this->cache->get('folder');
-		Filesystem::touch('folder/bar.txt', $time);
-		$cachedData = $this->cache->get('folder/bar.txt');
-		$this->assertInternalType('string', $barCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($barCachedData['etag'], $cachedData['etag']);
-		$this->assertEquals($time, $cachedData['mtime']);
-
-		$cachedData = $this->cache->get('folder');
-		$this->assertInternalType('string', $folderCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($folderCachedData['etag'], $cachedData['etag']);
-
-		$cachedData = $this->cache->get('');
-		$this->assertInternalType('string', $rootCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($rootCachedData['etag'], $cachedData['etag']);
-		$this->assertEquals($time, $cachedData['mtime']);
-	}
-
-	public function testTouchWithMountPoints() {
-		$storage2 = new \OC\Files\Storage\Temporary(array());
+	public function testMoveFolderCrossStorage() {
+		$storage2 = new Temporary(array());
 		$cache2 = $storage2->getCache();
-		Filesystem::mount($storage2, array(), '/' . self::$user . '/files/folder/substorage');
-		Filesystem::file_put_contents('folder/substorage/foo.txt', 'asd');
-		$this->assertTrue($cache2->inCache('foo.txt'));
-		$folderCachedData = $this->cache->get('folder');
-		$substorageCachedData = $cache2->get('');
-		$fooCachedData = $cache2->get('foo.txt');
-		$cachedData = $cache2->get('foo.txt');
-		$time = 1371006070;
-		Filesystem::touch('folder/substorage/foo.txt', $time);
-		$cachedData = $cache2->get('foo.txt');
-		$this->assertInternalType('string', $fooCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($fooCachedData['etag'], $cachedData['etag']);
-		$this->assertEquals($time, $cachedData['mtime']);
+		Filesystem::mount($storage2, array(), '/bar');
+		$this->storage->mkdir('foo');
+		$this->storage->mkdir('foo/bar');
+		$this->storage->file_put_contents('foo/foo.txt', 'qwerty');
+		$this->storage->file_put_contents('foo/bar.txt', 'foo');
+		$this->storage->file_put_contents('foo/bar/bar.txt', 'qwertyuiop');
 
-		$cachedData = $cache2->get('');
-		$this->assertInternalType('string', $substorageCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($substorageCachedData['etag'], $cachedData['etag']);
+		$this->storage->getScanner()->scan('');
 
-		$cachedData = $this->cache->get('folder');
-		$this->assertInternalType('string', $folderCachedData['etag']);
-		$this->assertInternalType('string', $cachedData['etag']);
-		$this->assertNotSame($folderCachedData['etag'], $cachedData['etag']);
-		$this->assertEquals($time, $cachedData['mtime']);
-	}
+		$this->assertTrue($this->cache->inCache('foo'));
+		$this->assertTrue($this->cache->inCache('foo/foo.txt'));
+		$this->assertTrue($this->cache->inCache('foo/bar.txt'));
+		$this->assertTrue($this->cache->inCache('foo/bar'));
+		$this->assertTrue($this->cache->inCache('foo/bar/bar.txt'));
+		$cached = [];
+		$cached[] = $this->cache->get('foo');
+		$cached[] = $this->cache->get('foo/foo.txt');
+		$cached[] = $this->cache->get('foo/bar.txt');
+		$cached[] = $this->cache->get('foo/bar');
+		$cached[] = $this->cache->get('foo/bar/bar.txt');
 
-	public function testUpdatePermissionsOnRescanOnlyForUpdatedFile() {
-		$permissionsCache = $this->storage->getPermissionsCache();
-		$scanner = $this->storage->getScanner();
-		$scanner->scan('');
-		$cache = $this->storage->getCache();
-		$loggedInUser = \OC_User::getUser();
-		\OC_User::setUserId(self::$user);
-		FileSystem::getDirectoryContent('/');
-		$past = time() - 600;
-		$cache->put('', array('storage_mtime' => $past));
+		// add extension to trigger the possible mimetype change
+		$storage2->moveFromStorage($this->storage, 'foo', 'foo.b');
+		$storage2->getUpdater()->renameFromStorage($this->storage, 'foo', 'foo.b');
 
-		$this->assertNotEquals(-1, $permissionsCache->get($cache->getId('foo.txt'), self::$user));
-		$this->assertNotEquals(-1, $permissionsCache->get($cache->getId('foo.png'), self::$user));
+		$this->assertFalse($this->cache->inCache('foo'));
+		$this->assertFalse($this->cache->inCache('foo/foo.txt'));
+		$this->assertFalse($this->cache->inCache('foo/bar.txt'));
+		$this->assertFalse($this->cache->inCache('foo/bar'));
+		$this->assertFalse($this->cache->inCache('foo/bar/bar.txt'));
+		$this->assertTrue($cache2->inCache('foo.b'));
+		$this->assertTrue($cache2->inCache('foo.b/foo.txt'));
+		$this->assertTrue($cache2->inCache('foo.b/bar.txt'));
+		$this->assertTrue($cache2->inCache('foo.b/bar'));
+		$this->assertTrue($cache2->inCache('foo.b/bar/bar.txt'));
 
-		$permissionsCache->set($cache->getId('foo.png'), self::$user, 15);
-		FileSystem::file_put_contents('/foo.txt', 'asd');
+		$cachedTarget = [];
+		$cachedTarget[] = $cache2->get('foo.b');
+		$cachedTarget[] = $cache2->get('foo.b/foo.txt');
+		$cachedTarget[] = $cache2->get('foo.b/bar.txt');
+		$cachedTarget[] = $cache2->get('foo.b/bar');
+		$cachedTarget[] = $cache2->get('foo.b/bar/bar.txt');
 
-		$this->assertEquals(-1, $permissionsCache->get($cache->getId('foo.txt'), self::$user));
-		$this->assertEquals(15, $permissionsCache->get($cache->getId('foo.png'), self::$user));
-
-		FileSystem::getDirectoryContent('/');
-
-		$this->assertEquals(15, $permissionsCache->get($cache->getId('foo.png'), self::$user));
-
-		FileSystem::file_put_contents('/qwerty.txt', 'asd');
-		FileSystem::getDirectoryContent('/');
-
-		$this->assertEquals(15, $permissionsCache->get($cache->getId('foo.png'), self::$user));
-
-		\OC_User::setUserId($loggedInUser);
+		foreach ($cached as $i => $old) {
+			$new = $cachedTarget[$i];
+			$this->assertEquals($old['mtime'], $new['mtime']);
+			$this->assertEquals($old['size'], $new['size']);
+			$this->assertEquals($old['etag'], $new['etag']);
+			$this->assertEquals($old['fileid'], $new['fileid']);
+			$this->assertEquals($old['mimetype'], $new['mimetype']);
+		}
 	}
 }

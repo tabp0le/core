@@ -1,47 +1,33 @@
 <?php
 /**
- * Copyright (c) 2013 Georg Ehrke georg@ownCloud.com
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
+
 namespace OC\Preview;
 
-use Imagick;
-
-if (extension_loaded('imagick')) {
-
-	$checkImagick = new Imagick();
-
-	if(count($checkImagick->queryFormats('PDF')) === 1) {
-
-		class PDF extends Provider {
-
-			public function getMimeType() {
-				return '/application\/pdf/';
-			}
-
-			public function getThumbnail($path, $maxX, $maxY, $scalingup, $fileview) {
-				$tmpPath = $fileview->toTmpFile($path);
-
-				//create imagick object from pdf
-				try{
-					$pdf = new Imagick($tmpPath . '[0]');
-					$pdf->setImageFormat('jpg');
-				} catch (\Exception $e) {
-					\OC_Log::write('core', $e->getmessage(), \OC_Log::ERROR);
-					return false;
-				}
-
-				unlink($tmpPath);
-
-				//new image object
-				$image = new \OC_Image($pdf);
-				//check if image object is valid
-				return $image->valid() ? $image : false;
-			}
-		}
-
-		\OC\Preview::registerProvider('OC\Preview\PDF');
+//.pdf
+class PDF extends Bitmap {
+	/**
+	 * {@inheritDoc}
+	 */
+	public function getMimeType() {
+		return '/application\/pdf/';
 	}
 }

@@ -6,7 +6,7 @@ use OC\AppFramework\DependencyInjection\DIContainer;
 use OC\AppFramework\routing\RouteConfig;
 
 
-class RouteConfigTest extends \PHPUnit_Framework_TestCase
+class RoutingTest extends \Test\TestCase
 {
 
 	public function testSimpleRoute()
@@ -36,6 +36,34 @@ class RouteConfigTest extends \PHPUnit_Framework_TestCase
 		$this->assertSimpleRoute($routes, 'folders.open', 'DELETE', '/folders/{folderId}/open', 'FoldersController', 'open');
 	}
 
+	public function testSimpleRouteWithRequirements()
+	{
+		$routes = array('routes' => array(
+			array('name' => 'folders#open', 'url' => '/folders/{folderId}/open', 'verb' => 'delete', 'requirements' => array('something'))
+		));
+
+		$this->assertSimpleRoute($routes, 'folders.open', 'DELETE', '/folders/{folderId}/open', 'FoldersController', 'open', array('something'));
+	}
+
+	public function testSimpleRouteWithDefaults()
+	{
+		$routes = array('routes' => array(
+			array('name' => 'folders#open', 'url' => '/folders/{folderId}/open', 'verb' => 'delete', array(), 'defaults' => array('param' => 'foobar'))
+		));
+
+		$this->assertSimpleRoute($routes, 'folders.open', 'DELETE', '/folders/{folderId}/open', 'FoldersController', 'open', array(), array('param' => 'foobar'));
+	}
+
+	public function testSimpleRouteWithPostfix()
+	{
+		$routes = array('routes' => array(
+			array('name' => 'folders#open', 'url' => '/folders/{folderId}/open', 'verb' => 'delete', 'postfix' => '_something')
+		));
+
+		$this->assertSimpleRoute($routes, 'folders.open', 'DELETE', '/folders/{folderId}/open', 'FoldersController', 'open', array(), array(), '_something');
+	}
+
+
 	/**
 	 * @expectedException \UnexpectedValueException
 	 */
@@ -46,7 +74,7 @@ class RouteConfigTest extends \PHPUnit_Framework_TestCase
 		));
 
 		// router mock
-		$router = $this->getMock("\OC_Router", array('create'));
+		$router = $this->getMock("\OC\Route\Router", array('create'), [\OC::$server->getLogger()]);
 
 		// load route configuration
 		$container = new DIContainer('app1');
@@ -66,16 +94,16 @@ class RouteConfigTest extends \PHPUnit_Framework_TestCase
 
 	public function testResource()
 	{
-		$routes = array('resources' => array('accounts' => array('url' => '/accounts')));
+		$routes = array('resources' => array('account' => array('url' => '/accounts')));
 
-		$this->assertResource($routes, 'accounts', '/accounts', 'AccountsController', 'accountId');
+		$this->assertResource($routes, 'account', '/accounts', 'AccountController', 'id');
 	}
 
 	public function testResourceWithUnderScoreName()
 	{
 		$routes = array('resources' => array('admin_accounts' => array('url' => '/admin/accounts')));
 
-		$this->assertResource($routes, 'admin_accounts', '/admin/accounts', 'AdminAccountsController', 'adminAccountId');
+		$this->assertResource($routes, 'admin_accounts', '/admin/accounts', 'AdminAccountsController', 'id');
 	}
 
 	/**
@@ -85,13 +113,18 @@ class RouteConfigTest extends \PHPUnit_Framework_TestCase
 	 * @param string $controllerName
 	 * @param string $actionName
 	 */
-	private function assertSimpleRoute($routes, $name, $verb, $url, $controllerName, $actionName)
+	private function assertSimpleRoute($routes, $name, $verb, $url, $controllerName, $actionName, array $requirements=array(), array $defaults=array(), $postfix='')
 	{
+		if ($postfix) {
+			$name .= $postfix;
+		}
+
 		// route mocks
-		$route = $this->mockRoute($verb, $controllerName, $actionName);
+		$container = new DIContainer('app1');
+		$route = $this->mockRoute($container, $verb, $controllerName, $actionName, $requirements, $defaults);
 
 		// router mock
-		$router = $this->getMock("\OC_Router", array('create'));
+		$router = $this->getMock("\OC\Route\Router", array('create'), [\OC::$server->getLogger()]);
 
 		// we expect create to be called once:
 		$router
@@ -101,7 +134,6 @@ class RouteConfigTest extends \PHPUnit_Framework_TestCase
 			->will($this->returnValue($route));
 
 		// load route configuration
-		$container = new DIContainer('app1');
 		$config = new RouteConfig($container, $router, $routes);
 
 		$config->register();
@@ -116,14 +148,15 @@ class RouteConfigTest extends \PHPUnit_Framework_TestCase
 	private function assertResource($yaml, $resourceName, $url, $controllerName, $paramName)
 	{
 		// router mock
-		$router = $this->getMock("\OC_Router", array('create'));
+		$router = $this->getMock("\OC\Route\Router", array('create'), [\OC::$server->getLogger()]);
 
 		// route mocks
-		$indexRoute = $this->mockRoute('GET', $controllerName, 'index');
-		$showRoute = $this->mockRoute('GET', $controllerName, 'show');
-		$createRoute = $this->mockRoute('POST', $controllerName, 'create');
-		$updateRoute = $this->mockRoute('PUT', $controllerName, 'update');
-		$destroyRoute = $this->mockRoute('DELETE', $controllerName, 'destroy');
+		$container = new DIContainer('app1');
+		$indexRoute = $this->mockRoute($container, 'GET', $controllerName, 'index');
+		$showRoute = $this->mockRoute($container, 'GET', $controllerName, 'show');
+		$createRoute = $this->mockRoute($container, 'POST', $controllerName, 'create');
+		$updateRoute = $this->mockRoute($container, 'PUT', $controllerName, 'update');
+		$destroyRoute = $this->mockRoute($container, 'DELETE', $controllerName, 'destroy');
 
 		$urlWithParam = $url . '/{' . $paramName . '}';
 
@@ -159,22 +192,29 @@ class RouteConfigTest extends \PHPUnit_Framework_TestCase
 			->will($this->returnValue($destroyRoute));
 
 		// load route configuration
-		$container = new DIContainer('app1');
 		$config = new RouteConfig($container, $router, $yaml);
 
 		$config->register();
 	}
 
 	/**
-	 * @param $verb
-	 * @param $controllerName
-	 * @param $actionName
+	 * @param DIContainer $container
+	 * @param string $verb
+	 * @param string $controllerName
+	 * @param string $actionName
+	 * @param array $requirements
+	 * @param array $defaults
 	 * @return \PHPUnit_Framework_MockObject_MockObject
 	 */
-	private function mockRoute($verb, $controllerName, $actionName)
-	{
-		$container = new DIContainer('app1');
-		$route = $this->getMock("\OC_Route", array('method', 'action'), array(), '', false);
+	private function mockRoute(
+		DIContainer $container,
+		$verb,
+		$controllerName,
+		$actionName,
+		array $requirements=array(),
+		array $defaults=array()
+	) {
+		$route = $this->getMock("\OC\Route\Route", array('method', 'action', 'requirements', 'defaults'), array(), '', false);
 		$route
 			->expects($this->exactly(1))
 			->method('method')
@@ -186,6 +226,23 @@ class RouteConfigTest extends \PHPUnit_Framework_TestCase
 			->method('action')
 			->with($this->equalTo(new RouteActionHandler($container, $controllerName, $actionName)))
 			->will($this->returnValue($route));
+
+		if(count($requirements) > 0) {
+			$route
+				->expects($this->exactly(1))
+				->method('requirements')
+				->with($this->equalTo($requirements))
+				->will($this->returnValue($route));
+		}
+
+		if (count($defaults) > 0) {
+			$route
+				->expects($this->exactly(1))
+				->method('defaults')
+				->with($this->equalTo($defaults))
+				->will($this->returnValue($route));
+		}
+
 		return $route;
 	}
 

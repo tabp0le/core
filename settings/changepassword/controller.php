@@ -1,5 +1,33 @@
 <?php
-
+/**
+ * @author Arthur Schiwon <blizzz@owncloud.com>
+ * @author Björn Schießle <schiessle@owncloud.com>
+ * @author Christopher Schäpers <kondou@ts.unde.re>
+ * @author Clark Tomlinson <fallen013@gmail.com>
+ * @author cmeh <cmeh@users.noreply.github.com>
+ * @author Florin Peter <github@florin-peter.de>
+ * @author Jakob Sack <mail@jakobsack.de>
+ * @author Lukas Reschke <lukas@owncloud.com>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Sam Tuke <mail@samtuke.com>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
+ */
 namespace OC\Settings\ChangePassword;
 
 class Controller {
@@ -7,9 +35,6 @@ class Controller {
 		// Check if we are an user
 		\OC_JSON::callCheck();
 		\OC_JSON::checkLoggedIn();
-
-		// Manually load apps to ensure hooks work correctly (workaround for issue 1503)
-		\OC_App::loadApps();
 
 		$username = \OC_User::getUser();
 		$password = isset($_POST['personal-password']) ? $_POST['personal-password'] : null;
@@ -32,13 +57,10 @@ class Controller {
 		\OC_JSON::callCheck();
 		\OC_JSON::checkLoggedIn();
 
-		// Manually load apps to ensure hooks work correctly (workaround for issue 1503)
-		\OC_App::loadApps();
-
+		$l = new \OC_L10n('settings');
 		if (isset($_POST['username'])) {
 			$username = $_POST['username'];
 		} else {
-			$l = new \OC_L10n('settings');
 			\OC_JSON::error(array('data' => array('message' => $l->t('No user supplied')) ));
 			exit();
 		}
@@ -46,49 +68,79 @@ class Controller {
 		$password = isset($_POST['password']) ? $_POST['password'] : null;
 		$recoveryPassword = isset($_POST['recoveryPassword']) ? $_POST['recoveryPassword'] : null;
 
+		$isUserAccessible = false;
+		$currentUserObject = \OC::$server->getUserSession()->getUser();
+		$targetUserObject = \OC::$server->getUserManager()->get($username);
+		if($currentUserObject !== null && $targetUserObject !== null) {
+			$isUserAccessible = \OC::$server->getGroupManager()->getSubAdmin()->isUserAccessible($currentUserObject, $targetUserObject);
+		}
+
 		if (\OC_User::isAdminUser(\OC_User::getUser())) {
 			$userstatus = 'admin';
-		} elseif (\OC_SubAdmin::isUserAccessible(\OC_User::getUser(), $username)) {
+		} elseif ($isUserAccessible) {
 			$userstatus = 'subadmin';
 		} else {
-			$l = new \OC_L10n('settings');
 			\OC_JSON::error(array('data' => array('message' => $l->t('Authentication error')) ));
 			exit();
 		}
 
-		if (\OC_App::isEnabled('files_encryption')) {
+		if (\OC_App::isEnabled('encryption')) {
 			//handle the recovery case
-			$util = new \OCA\Encryption\Util(new \OC_FilesystemView('/'), $username);
-			$recoveryAdminEnabled = \OC_Appconfig::getValue('files_encryption', 'recoveryAdminEnabled');
+			$crypt = new \OCA\Encryption\Crypto\Crypt(
+				\OC::$server->getLogger(),
+				\OC::$server->getUserSession(),
+				\OC::$server->getConfig());
+			$keyStorage = \OC::$server->getEncryptionKeyStorage();
+			$util = new \OCA\Encryption\Util(
+				new \OC\Files\View(),
+				$crypt,
+				\OC::$server->getLogger(),
+				\OC::$server->getUserSession(),
+				\OC::$server->getConfig(),
+				\OC::$server->getUserManager());
+			$keyManager = new \OCA\Encryption\KeyManager(
+				$keyStorage,
+				$crypt,
+				\OC::$server->getConfig(),
+				\OC::$server->getUserSession(),
+				new \OCA\Encryption\Session(\OC::$server->getSession()),
+				\OC::$server->getLogger(),
+				$util);
+			$recovery = new \OCA\Encryption\Recovery(
+				\OC::$server->getUserSession(),
+				$crypt,
+				\OC::$server->getSecureRandom(),
+				$keyManager,
+				\OC::$server->getConfig(),
+				$keyStorage,
+				\OC::$server->getEncryptionFilesHelper(),
+				new \OC\Files\View());
+			$recoveryAdminEnabled = $recovery->isRecoveryKeyEnabled();
 
 			$validRecoveryPassword = false;
-			$recoveryPasswordSupported = false;
+			$recoveryEnabledForUser = false;
 			if ($recoveryAdminEnabled) {
-				$validRecoveryPassword = $util->checkRecoveryPassword($recoveryPassword);
-				$recoveryEnabledForUser = $util->recoveryEnabledForUser();
+				$validRecoveryPassword = $keyManager->checkRecoveryPassword($recoveryPassword);
+				$recoveryEnabledForUser = $recovery->isRecoveryEnabledForUser($username);
 			}
 
 			if ($recoveryEnabledForUser && $recoveryPassword === '') {
-				$l = new \OC_L10n('settings');
 				\OC_JSON::error(array('data' => array(
 					'message' => $l->t('Please provide an admin recovery password, otherwise all user data will be lost')
 				)));
 			} elseif ($recoveryEnabledForUser && ! $validRecoveryPassword) {
-				$l = new \OC_L10n('settings');
 				\OC_JSON::error(array('data' => array(
 					'message' => $l->t('Wrong admin recovery password. Please check the password and try again.')
 				)));
 			} else { // now we know that everything is fine regarding the recovery password, let's try to change the password
 				$result = \OC_User::setPassword($username, $password, $recoveryPassword);
-				if (!$result && $recoveryPasswordSupported) {
-					$l = new \OC_L10n('settings');
+				if (!$result && $recoveryEnabledForUser) {
 					\OC_JSON::error(array(
 						"data" => array(
-							"message" => $l->t("Back-end doesn't support password change, but the users encryption key was successfully updated.")
+							"message" => $l->t("Backend doesn't support password change, but the user's encryption key was successfully updated.")
 						)
 					));
-				} elseif (!$result && !$recoveryPasswordSupported) {
-					$l = new \OC_L10n('settings');
+				} elseif (!$result && !$recoveryEnabledForUser) {
 					\OC_JSON::error(array("data" => array( "message" => $l->t("Unable to change password" ) )));
 				} else {
 					\OC_JSON::success(array("data" => array( "username" => $username )));
@@ -99,7 +151,6 @@ class Controller {
 			if (!is_null($password) && \OC_User::setPassword($username, $password)) {
 				\OC_JSON::success(array('data' => array('username' => $username)));
 			} else {
-				$l = new \OC_L10n('settings');
 				\OC_JSON::error(array('data' => array('message' => $l->t('Unable to change password'))));
 			}
 		}

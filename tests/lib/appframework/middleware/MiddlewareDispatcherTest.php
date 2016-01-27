@@ -4,7 +4,7 @@
  * ownCloud - App Framework
  *
  * @author Bernhard Posselt
- * @copyright 2012 Bernhard Posselt nukeawhale@gmail.com
+ * @copyright 2012 Bernhard Posselt <dev@bernhard-posselt.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
@@ -100,7 +100,7 @@ class TestMiddleware extends Middleware {
 }
 
 
-class MiddlewareDispatcherTest extends \PHPUnit_Framework_TestCase {
+class MiddlewareDispatcherTest extends \Test\TestCase {
 
 	public $exception;
 	public $response;
@@ -113,8 +113,9 @@ class MiddlewareDispatcherTest extends \PHPUnit_Framework_TestCase {
 	 */
 	private $dispatcher;
 
+	protected function setUp() {
+		parent::setUp();
 
-	public function setUp() {
 		$this->dispatcher = new MiddlewareDispatcher();
 		$this->controller = $this->getControllerMock();
 		$this->method = 'method';
@@ -124,15 +125,18 @@ class MiddlewareDispatcherTest extends \PHPUnit_Framework_TestCase {
 	}
 
 
-	private function getAPIMock(){
-		return $this->getMock('OC\AppFramework\DependencyInjection\DIContainer',
-					array('getAppName'), array('app'));
-	}
-
-
 	private function getControllerMock(){
-		return $this->getMock('OCP\AppFramework\Controller', array('method'),
-			array($this->getAPIMock(), new Request()));
+		return $this->getMock(
+			'OCP\AppFramework\Controller',
+			['method'],
+			['app',
+				new Request(
+					['method' => 'GET'],
+					$this->getMock('\OCP\Security\ISecureRandom'),
+					$this->getMock('\OCP\IConfig')
+				)
+			]
+		);
 	}
 
 

@@ -1,33 +1,48 @@
 <?php
 /**
- * ownCloud
+ * @author Adam Williamson <awilliam@redhat.com>
+ * @author Arthur Schiwon <blizzz@owncloud.com>
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Christopher Schäpers <kondou@ts.unde.re>
+ * @author Jörn Friedrich Dreyer <jfd@butonic.de>
+ * @author Lukas Reschke <lukas@owncloud.com>
+ * @author Michael Gapczynski <GapczynskiM@gmail.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Philipp Kapfer <philipp.kapfer@gmx.at>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ * @author Vincent Petry <pvince81@owncloud.com>
  *
- * @author Michael Gapczynski
- * @copyright 2012 Michael Gapczynski mtgap@owncloud.com
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\Files\Storage;
 
+use Icewind\Streams\IteratorDirectory;
+
 set_include_path(get_include_path().PATH_SEPARATOR.
 	\OC_App::getAppPath('files_external').'/3rdparty/google-api-php-client/src');
-require_once 'Google_Client.php';
-require_once 'contrib/Google_DriveService.php';
+require_once 'Google/Client.php';
+require_once 'Google/Service/Drive.php';
 
 class Google extends \OC\Files\Storage\Common {
 
+	private $client;
 	private $id;
 	private $service;
 	private $driveFiles;
@@ -46,13 +61,19 @@ class Google extends \OC\Files\Storage\Common {
 			&& isset($params['client_id']) && isset($params['client_secret'])
 			&& isset($params['token'])
 		) {
-			$client = new \Google_Client();
-			$client->setClientId($params['client_id']);
-			$client->setClientSecret($params['client_secret']);
-			$client->setScopes(array('https://www.googleapis.com/auth/drive'));
-			$client->setUseObjects(true);
-			$client->setAccessToken($params['token']);
-			$this->service = new \Google_DriveService($client);
+			$this->client = new \Google_Client();
+			$this->client->setClientId($params['client_id']);
+			$this->client->setClientSecret($params['client_secret']);
+			$this->client->setScopes(array('https://www.googleapis.com/auth/drive'));
+			$this->client->setAccessToken($params['token']);
+			// if curl isn't available we're likely to run into
+			// https://github.com/google/google-api-php-client/issues/59
+			// - disable gzip to avoid it.
+			if (!function_exists('curl_version') || !function_exists('curl_exec')) {
+				$this->client->setClassConfig("Google_Http_Request", "disable_gzip", true);
+			}
+			// note: API connection is lazy
+			$this->service = new \Google_Service_Drive($this->client);
 			$token = json_decode($params['token'], true);
 			$this->id = 'google::'.substr($params['client_id'], 0, 30).$token['created'];
 		} else {
@@ -65,9 +86,10 @@ class Google extends \OC\Files\Storage\Common {
 	}
 
 	/**
-	 * Get the Google_DriveFile object for the specified path
+	 * Get the Google_Service_Drive_DriveFile object for the specified path.
+	 * Returns false on failure.
 	 * @param string $path
-	 * @return string
+	 * @return \Google_Service_Drive_DriveFile|false
 	 */
 	private function getDriveFile($path) {
 		// Remove leading and trailing slashes
@@ -95,7 +117,7 @@ class Google extends \OC\Files\Storage\Common {
 				if (isset($this->driveFiles[$path])) {
 					$parentId = $this->driveFiles[$path]->getId();
 				} else {
-					$q = "title='".$name."' and '".$parentId."' in parents and trashed = false";
+					$q = "title='" . str_replace("'","\\'", $name) . "' and '" . str_replace("'","\\'", $parentId) . "' in parents and trashed = false";
 					$result = $this->service->files->listFiles(array('q' => $q))->getItems();
 					if (!empty($result)) {
 						// Google Drive allows files with the same name, ownCloud doesn't
@@ -114,7 +136,7 @@ class Google extends \OC\Files\Storage\Common {
 							$pathWithoutExt = substr($path, 0, $pos);
 							$file = $this->getDriveFile($pathWithoutExt);
 							if ($file) {
-								// Switch cached Google_DriveFile to the correct index
+								// Switch cached Google_Service_Drive_DriveFile to the correct index
 								unset($this->driveFiles[$pathWithoutExt]);
 								$this->driveFiles[$path] = $file;
 								$parentId = $file->getId();
@@ -132,9 +154,9 @@ class Google extends \OC\Files\Storage\Common {
 	}
 
 	/**
-	 * Set the Google_DriveFile object in the cache
+	 * Set the Google_Service_Drive_DriveFile object in the cache
 	 * @param string $path
-	 * @param Google_DriveFile|false $file
+	 * @param Google_Service_Drive_DriveFile|false $file
 	 */
 	private function setDriveFile($path, $file) {
 		$path = trim($path, '/');
@@ -187,10 +209,10 @@ class Google extends \OC\Files\Storage\Common {
 		if (!$this->is_dir($path)) {
 			$parentFolder = $this->getDriveFile(dirname($path));
 			if ($parentFolder) {
-				$folder = new \Google_DriveFile();
+				$folder = new \Google_Service_Drive_DriveFile();
 				$folder->setTitle(basename($path));
 				$folder->setMimeType(self::FOLDER);
-				$parent = new \Google_ParentReference();
+				$parent = new \Google_Service_Drive_ParentReference();
 				$parent->setId($parentFolder->getId());
 				$folder->setParents(array($parent));
 				$result = $this->service->files->insert($folder);
@@ -204,6 +226,9 @@ class Google extends \OC\Files\Storage\Common {
 	}
 
 	public function rmdir($path) {
+		if (!$this->isDeletable($path)) {
+			return false;
+		}
 		if (trim($path, '/') === '') {
 			$dir = $this->opendir($path);
 			if(is_resource($dir)) {
@@ -224,8 +249,6 @@ class Google extends \OC\Files\Storage\Common {
 	}
 
 	public function opendir($path) {
-		// Remove leading and trailing slashes
-		$path = trim($path, '/');
 		$folder = $this->getDriveFile($path);
 		if ($folder) {
 			$files = array();
@@ -236,7 +259,7 @@ class Google extends \OC\Files\Storage\Common {
 				if ($pageToken !== true) {
 					$params['pageToken'] = $pageToken;
 				}
-				$params['q'] = "'".$folder->getId()."' in parents and trashed = false";
+				$params['q'] = "'" . str_replace("'","\\'", $folder->getId()) . "' in parents and trashed = false";
 				$children = $this->service->files->listFiles($params);
 				foreach ($children->getItems() as $child) {
 					$name = $child->getTitle();
@@ -262,15 +285,14 @@ class Google extends \OC\Files\Storage\Common {
 							$this->onDuplicateFileDetected($filepath);
 						}
 					} else {
-						// Cache the Google_DriveFile for future use
+						// Cache the Google_Service_Drive_DriveFile for future use
 						$this->setDriveFile($filepath, $child);
 						$files[] = $name;
 					}
 				}
 				$pageToken = $children->getNextPageToken();
 			}
-			\OC\Files\Stream\Dir::register('google'.$path, $files);
-			return opendir('fakedir://google'.$path);
+			return IteratorDirectory::wrap($files);
 		} else {
 			return false;
 		}
@@ -286,7 +308,7 @@ class Google extends \OC\Files\Storage\Common {
 				// Check if this is a Google Doc
 				if ($this->getMimeType($path) !== $file->getMimeType()) {
 					// Return unknown file size
-					$stat['size'] = \OC\Files\SPACE_UNKNOWN;
+					$stat['size'] = \OCP\Files\FileInfo::SPACE_UNKNOWN;
 				} else {
 					$stat['size'] = $file->getFileSize();
 				}
@@ -352,17 +374,29 @@ class Google extends \OC\Files\Storage\Common {
 				// Change file parent
 				$parentFolder2 = $this->getDriveFile(dirname($path2));
 				if ($parentFolder2) {
-					$parent = new \Google_ParentReference();
+					$parent = new \Google_Service_Drive_ParentReference();
 					$parent->setId($parentFolder2->getId());
 					$file->setParents(array($parent));
 				} else {
 					return false;
 				}
 			}
+			// We need to get the object for the existing file with the same
+			// name (if there is one) before we do the patch. If oldfile
+			// exists and is a directory we have to delete it before we
+			// do the rename too.
+			$oldfile = $this->getDriveFile($path2);
+			if ($oldfile && $this->is_dir($path2)) {
+				$this->rmdir($path2);
+				$oldfile = false;
+			}
 			$result = $this->service->files->patch($file->getId(), $file);
 			if ($result) {
 				$this->setDriveFile($path1, false);
 				$this->setDriveFile($path2, $result);
+				if ($oldfile) {
+					$this->service->files->delete($oldfile->getId());
+				}
 			}
 			return (bool)$result;
 		} else {
@@ -391,14 +425,24 @@ class Google extends \OC\Files\Storage\Common {
 						$downloadUrl = $file->getDownloadUrl();
 					}
 					if (isset($downloadUrl)) {
-						$request = new \Google_HttpRequest($downloadUrl, 'GET', null, null);
-						$httpRequest = \Google_Client::$io->authenticatedRequest($request);
-						if ($httpRequest->getResponseHttpCode() == 200) {
-							$tmpFile = \OC_Helper::tmpFile($ext);
-							$data = $httpRequest->getResponseBody();
-							file_put_contents($tmpFile, $data);
-							return fopen($tmpFile, $mode);
+						$request = new \Google_Http_Request($downloadUrl, 'GET', null, null);
+						$httpRequest = $this->client->getAuth()->sign($request);
+						// the library's service doesn't support streaming, so we use Guzzle instead
+						$client = \OC::$server->getHTTPClientService()->newClient();
+						try {
+							$response = $client->get($downloadUrl, [
+								'headers' => $httpRequest->getRequestHeaders(),
+								'stream' => true
+							]);
+						} catch (RequestException $e) {
+							if ($e->getResponse()->getStatusCode() === 404) {
+								return false;
+							} else {
+								throw $e;
+							}
 						}
+
+						return $response->getBody();
 					}
 				}
 				return false;
@@ -414,7 +458,7 @@ class Google extends \OC\Files\Storage\Common {
 			case 'x+':
 			case 'c':
 			case 'c+':
-				$tmpFile = \OC_Helper::tmpFile($ext);
+				$tmpFile = \OCP\Files::tmpFile($ext);
 				\OC\Files\Stream\Close::registerCallback($tmpFile, array($this, 'writeBack'));
 				if ($this->file_exists($path)) {
 					$source = $this->fopen($path, 'rb');
@@ -431,21 +475,22 @@ class Google extends \OC\Files\Storage\Common {
 			$parentFolder = $this->getDriveFile(dirname($path));
 			if ($parentFolder) {
 				// TODO Research resumable upload
-				$mimetype = \OC_Helper::getMimeType($tmpFile);
+				$mimetype = \OC::$server->getMimeTypeDetector()->detect($tmpFile);
 				$data = file_get_contents($tmpFile);
 				$params = array(
 					'data' => $data,
 					'mimeType' => $mimetype,
+					'uploadType' => 'media'
 				);
 				$result = false;
 				if ($this->file_exists($path)) {
 					$file = $this->getDriveFile($path);
 					$result = $this->service->files->update($file->getId(), $file, $params);
 				} else {
-					$file = new \Google_DriveFile();
+					$file = new \Google_Service_Drive_DriveFile();
 					$file->setTitle(basename($path));
 					$file->setMimeType($mimetype);
-					$parent = new \Google_ParentReference();
+					$parent = new \Google_Service_Drive_ParentReference();
 					$parent->setId($parentFolder->getId());
 					$file->setParents(array($parent));
 					$result = $this->service->files->insert($file, $params);
@@ -492,7 +537,10 @@ class Google extends \OC\Files\Storage\Common {
 		$result = false;
 		if ($file) {
 			if (isset($mtime)) {
-				$file->setModifiedDate($mtime);
+				// This is just RFC3339, but frustratingly, GDrive's API *requires*
+				// the fractions portion be present, while no handy PHP constant
+				// for RFC3339 or ISO8601 includes it. So we do it ourselves.
+				$file->setModifiedDate(date('Y-m-d\TH:i:s.uP', $mtime));
 				$result = $this->service->files->patch($file->getId(), $file, array(
 					'setModifiedDate' => true,
 				));
@@ -502,9 +550,9 @@ class Google extends \OC\Files\Storage\Common {
 		} else {
 			$parentFolder = $this->getDriveFile(dirname($path));
 			if ($parentFolder) {
-				$file = new \Google_DriveFile();
+				$file = new \Google_Service_Drive_DriveFile();
 				$file->setTitle(basename($path));
-				$parent = new \Google_ParentReference();
+				$parent = new \Google_Service_Drive_ParentReference();
 				$parent->setId($parentFolder->getId());
 				$file->setParents(array($parent));
 				$result = $this->service->files->insert($file);
@@ -584,6 +632,13 @@ class Google extends \OC\Files\Storage\Common {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * check if curl is installed
+	 */
+	public static function checkDependencies() {
+		return true;
 	}
 
 }

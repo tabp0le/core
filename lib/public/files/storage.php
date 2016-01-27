@@ -1,22 +1,27 @@
 <?php
 /**
- * ownCloud
+ * @author Jörn Friedrich Dreyer <jfd@butonic.de>
+ * @author Michael Roth <michael.roth@rz.uni-augsburg.de>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ * @author Vincent Petry <pvince81@owncloud.com>
  *
- * @author Robin Appelman
- * @copyright 2012 Robin Appelman icewind@owncloud.com
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
  *
  */
 
@@ -29,17 +34,23 @@
 // This means that they should be used by apps instead of the internal ownCloud classes
 namespace OCP\Files;
 
+use OCP\Files\Storage\IStorage;
+use OCP\Lock\ILockingProvider;
+
 /**
  * Provide a common interface to all different storage options
  *
  * All paths passed to the storage are relative to the storage and should NOT have a leading slash.
+ *
+ * @since 6.0.0
+ * @deprecated 9.0.0 use \OCP\Files\Storage\IStorage instead
  */
-interface Storage {
+interface Storage extends IStorage {
 	/**
 	 * $parameters is a free form array with the configuration options needed to construct the storage
 	 *
 	 * @param array $parameters
-	 * @return void
+	 * @since 6.0.0
 	 */
 	public function __construct($parameters);
 
@@ -49,14 +60,17 @@ interface Storage {
 	 * and two storage objects with the same id should refer to two storages that display the same files.
 	 *
 	 * @return string
+	 * @since 6.0.0
 	 */
 	public function getId();
 
 	/**
 	 * see http://php.net/manual/en/function.mkdir.php
+	 * implementations need to implement a recursive mkdir
 	 *
 	 * @param string $path
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function mkdir($path);
 
@@ -65,6 +79,7 @@ interface Storage {
 	 *
 	 * @param string $path
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function rmdir($path);
 
@@ -72,23 +87,26 @@ interface Storage {
 	 * see http://php.net/manual/en/function.opendir.php
 	 *
 	 * @param string $path
-	 * @return resource
+	 * @return resource|false
+	 * @since 6.0.0
 	 */
 	public function opendir($path);
 
 	/**
-	 * see http://php.net/manual/en/function.is_dir.php
+	 * see http://php.net/manual/en/function.is-dir.php
 	 *
 	 * @param string $path
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function is_dir($path);
 
 	/**
-	 * see http://php.net/manual/en/function.is_file.php
+	 * see http://php.net/manual/en/function.is-file.php
 	 *
 	 * @param string $path
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function is_file($path);
 
@@ -97,7 +115,8 @@ interface Storage {
 	 * only the following keys are required in the result: size and mtime
 	 *
 	 * @param string $path
-	 * @return array
+	 * @return array|false
+	 * @since 6.0.0
 	 */
 	public function stat($path);
 
@@ -105,7 +124,8 @@ interface Storage {
 	 * see http://php.net/manual/en/function.filetype.php
 	 *
 	 * @param string $path
-	 * @return bool
+	 * @return string|false
+	 * @since 6.0.0
 	 */
 	public function filetype($path);
 
@@ -114,7 +134,8 @@ interface Storage {
 	 * The result for filesize when called on a folder is required to be 0
 	 *
 	 * @param string $path
-	 * @return int
+	 * @return int|false
+	 * @since 6.0.0
 	 */
 	public function filesize($path);
 
@@ -123,6 +144,7 @@ interface Storage {
 	 *
 	 * @param string $path
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function isCreatable($path);
 
@@ -131,6 +153,7 @@ interface Storage {
 	 *
 	 * @param string $path
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function isReadable($path);
 
@@ -139,6 +162,7 @@ interface Storage {
 	 *
 	 * @param string $path
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function isUpdatable($path);
 
@@ -147,6 +171,7 @@ interface Storage {
 	 *
 	 * @param string $path
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function isDeletable($path);
 
@@ -155,6 +180,7 @@ interface Storage {
 	 *
 	 * @param string $path
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function isSharable($path);
 
@@ -164,6 +190,7 @@ interface Storage {
 	 *
 	 * @param string $path
 	 * @return int
+	 * @since 6.0.0
 	 */
 	public function getPermissions($path);
 
@@ -172,6 +199,7 @@ interface Storage {
 	 *
 	 * @param string $path
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function file_exists($path);
 
@@ -179,7 +207,8 @@ interface Storage {
 	 * see http://php.net/manual/en/function.filemtime.php
 	 *
 	 * @param string $path
-	 * @return int
+	 * @return int|false
+	 * @since 6.0.0
 	 */
 	public function filemtime($path);
 
@@ -187,7 +216,8 @@ interface Storage {
 	 * see http://php.net/manual/en/function.file_get_contents.php
 	 *
 	 * @param string $path
-	 * @return string
+	 * @return string|false
+	 * @since 6.0.0
 	 */
 	public function file_get_contents($path);
 
@@ -197,6 +227,7 @@ interface Storage {
 	 * @param string $path
 	 * @param string $data
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function file_put_contents($path, $data);
 
@@ -205,6 +236,7 @@ interface Storage {
 	 *
 	 * @param string $path
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function unlink($path);
 
@@ -214,6 +246,7 @@ interface Storage {
 	 * @param string $path1
 	 * @param string $path2
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function rename($path1, $path2);
 
@@ -223,6 +256,7 @@ interface Storage {
 	 * @param string $path1
 	 * @param string $path2
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function copy($path1, $path2);
 
@@ -231,7 +265,8 @@ interface Storage {
 	 *
 	 * @param string $path
 	 * @param string $mode
-	 * @return resource
+	 * @return resource|false
+	 * @since 6.0.0
 	 */
 	public function fopen($path, $mode);
 
@@ -240,7 +275,8 @@ interface Storage {
 	 * The mimetype for a folder is required to be "httpd/unix-directory"
 	 *
 	 * @param string $path
-	 * @return string
+	 * @return string|false
+	 * @since 6.0.0
 	 */
 	public function getMimeType($path);
 
@@ -250,7 +286,8 @@ interface Storage {
 	 * @param string $type
 	 * @param string $path
 	 * @param bool $raw
-	 * @return string
+	 * @return string|false
+	 * @since 6.0.0
 	 */
 	public function hash($type, $path, $raw = false);
 
@@ -258,7 +295,8 @@ interface Storage {
 	 * see http://php.net/manual/en/function.free_space.php
 	 *
 	 * @param string $path
-	 * @return int
+	 * @return int|false
+	 * @since 6.0.0
 	 */
 	public function free_space($path);
 
@@ -266,7 +304,8 @@ interface Storage {
 	 * search for occurrences of $query in file names
 	 *
 	 * @param string $query
-	 * @return array
+	 * @return array|false
+	 * @since 6.0.0
 	 */
 	public function search($query);
 
@@ -277,6 +316,7 @@ interface Storage {
 	 * @param string $path
 	 * @param int $mtime
 	 * @return bool
+	 * @since 6.0.0
 	 */
 	public function touch($path, $mtime = null);
 
@@ -285,7 +325,8 @@ interface Storage {
 	 * The local version of the file can be temporary and doesn't have to be persistent across requests
 	 *
 	 * @param string $path
-	 * @return string
+	 * @return string|false
+	 * @since 6.0.0
 	 */
 	public function getLocalFile($path);
 
@@ -294,7 +335,8 @@ interface Storage {
 	 * The local version of the folder can be temporary and doesn't have to be persistent across requests
 	 *
 	 * @param string $path
-	 * @return string
+	 * @return string|false
+	 * @since 6.0.0
 	 */
 	public function getLocalFolder($path);
 	/**
@@ -303,6 +345,7 @@ interface Storage {
 	 * @param string $path
 	 * @param int $time
 	 * @return bool
+	 * @since 6.0.0
 	 *
 	 * hasUpdated for folders should return at least true if a file inside the folder is add, removed or renamed.
 	 * returning true for other changes in the folder is optional
@@ -313,7 +356,8 @@ interface Storage {
 	 * get the ETag for a file or folder
 	 *
 	 * @param string $path
-	 * @return string
+	 * @return string|false
+	 * @since 6.0.0
 	 */
 	public function getETag($path);
 
@@ -325,6 +369,100 @@ interface Storage {
 	 * it might return a temporary file.
 	 *
 	 * @return bool true if the files are stored locally, false otherwise
+	 * @since 7.0.0
 	 */
 	public function isLocal();
+
+	/**
+	 * Check if the storage is an instance of $class or is a wrapper for a storage that is an instance of $class
+	 *
+	 * @param string $class
+	 * @return bool
+	 * @since 7.0.0
+	 */
+	public function instanceOfStorage($class);
+
+	/**
+	 * A custom storage implementation can return an url for direct download of a give file.
+	 *
+	 * For now the returned array can hold the parameter url - in future more attributes might follow.
+	 *
+	 * @param string $path
+	 * @return array|false
+	 * @since 8.0.0
+	 */
+	public function getDirectDownload($path);
+
+	/**
+	 * @param string $path the path of the target folder
+	 * @param string $fileName the name of the file itself
+	 * @return void
+	 * @throws InvalidPathException
+	 * @since 8.1.0
+	 */
+	public function verifyPath($path, $fileName);
+
+	/**
+	 * @param \OCP\Files\Storage $sourceStorage
+	 * @param string $sourceInternalPath
+	 * @param string $targetInternalPath
+	 * @return bool
+	 * @since 8.1.0
+	 */
+	public function copyFromStorage(\OCP\Files\Storage $sourceStorage, $sourceInternalPath, $targetInternalPath);
+
+	/**
+	 * @param \OCP\Files\Storage $sourceStorage
+	 * @param string $sourceInternalPath
+	 * @param string $targetInternalPath
+	 * @return bool
+	 * @since 8.1.0
+	 */
+	public function moveFromStorage(\OCP\Files\Storage $sourceStorage, $sourceInternalPath, $targetInternalPath);
+
+	/**
+	 * @param string $path The path of the file to acquire the lock for
+	 * @param int $type \OCP\Lock\ILockingProvider::LOCK_SHARED or \OCP\Lock\ILockingProvider::LOCK_EXCLUSIVE
+	 * @param \OCP\Lock\ILockingProvider $provider
+	 * @throws \OCP\Lock\LockedException
+	 * @since 8.1.0
+	 */
+	public function acquireLock($path, $type, ILockingProvider $provider);
+
+	/**
+	 * @param string $path The path of the file to acquire the lock for
+	 * @param int $type \OCP\Lock\ILockingProvider::LOCK_SHARED or \OCP\Lock\ILockingProvider::LOCK_EXCLUSIVE
+	 * @param \OCP\Lock\ILockingProvider $provider
+	 * @since 8.1.0
+	 */
+	public function releaseLock($path, $type, ILockingProvider $provider);
+
+	/**
+	 * @param string $path The path of the file to change the lock for
+	 * @param int $type \OCP\Lock\ILockingProvider::LOCK_SHARED or \OCP\Lock\ILockingProvider::LOCK_EXCLUSIVE
+	 * @param \OCP\Lock\ILockingProvider $provider
+	 * @throws \OCP\Lock\LockedException
+	 * @since 8.1.0
+	 */
+	public function changeLock($path, $type, ILockingProvider $provider);
+
+	/**
+	 * Test a storage for availability
+	 *
+	 * @since 8.2.0
+	 * @return bool
+	 */
+	public function test();
+
+	/**
+	 * @since 8.2.0
+	 * @return array [ available, last_checked ]
+	 */
+	public function getAvailability();
+
+	/**
+	 * @since 8.2.0
+	 * @param bool $isAvailable
+	 */
+	public function setAvailability($isAvailable);
 }

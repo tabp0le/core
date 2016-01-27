@@ -9,20 +9,20 @@
 namespace Test\Files\Mount;
 
 
-use OC\Files\Storage\Loader;
+use OC\Files\Storage\StorageFactory;
 use OC\Files\Storage\Wrapper\Wrapper;
 
-class Mount extends \PHPUnit_Framework_TestCase {
+class Mount extends \Test\TestCase {
 	public function testFromStorageObject() {
 		$storage = $this->getMockBuilder('\OC\Files\Storage\Temporary')
 			->disableOriginalConstructor()
 			->getMock();
-		$mount = new \OC\Files\Mount\Mount($storage, '/foo');
+		$mount = new \OC\Files\Mount\MountPoint($storage, '/foo');
 		$this->assertInstanceOf('\OC\Files\Storage\Temporary', $mount->getStorage());
 	}
 
 	public function testFromStorageClassname() {
-		$mount = new \OC\Files\Mount\Mount('\OC\Files\Storage\Temporary', '/foo');
+		$mount = new \OC\Files\Mount\MountPoint('\OC\Files\Storage\Temporary', '/foo');
 		$this->assertInstanceOf('\OC\Files\Storage\Temporary', $mount->getStorage());
 	}
 
@@ -34,13 +34,13 @@ class Mount extends \PHPUnit_Framework_TestCase {
 			return new Wrapper(array('storage' => $storage));
 		};
 
-		$loader = new Loader();
-		$loader->addStorageWrapper($wrapper);
+		$loader = new StorageFactory();
+		$loader->addStorageWrapper('test_wrapper', $wrapper);
 
 		$storage = $this->getMockBuilder('\OC\Files\Storage\Temporary')
 			->disableOriginalConstructor()
 			->getMock();
-		$mount = new \OC\Files\Mount\Mount($storage, '/foo', array(), $loader);
+		$mount = new \OC\Files\Mount\MountPoint($storage, '/foo', array(), $loader);
 		$this->assertInstanceOf('\OC\Files\Storage\Wrapper\Wrapper', $mount->getStorage());
 	}
 }

@@ -1,34 +1,48 @@
 <?php
 /**
- * Copyright (c) 2012 Bart Visscher <bartv@thisnet.nl>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Bernhard Posselt <dev@bernhard-posselt.com>
+ * @author Jakob Sack <mail@jakobsack.de>
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Jörn Friedrich Dreyer <jfd@butonic.de>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
-class OC_L10N_String{
-	/**
-	 * @var OC_L10N
-	 */
+class OC_L10N_String implements JsonSerializable {
+	/** @var \OC_L10N|\OC\L10N\L10N */
 	protected $l10n;
 
-	/**
-	 * @var string
-	 */
+	/** @var string */
 	protected $text;
 
-	/**
-	 * @var array
-	 */
+	/** @var array */
 	protected $parameters;
 
-	/**
-	 * @var integer
-	 */
+	/** @var integer */
 	protected $count;
 
 	/**
-	 * @param OC_L10N $l10n
+	 * @param \OC_L10N|\OC\L10N\L10N $l10n
+	 * @param string|string[] $text
+	 * @param array $parameters
+	 * @param int $count
 	 */
 	public function __construct($l10n, $text, $parameters, $count = 1) {
 		$this->l10n = $l10n;
@@ -55,5 +69,10 @@ class OC_L10N_String{
 		// Replace %n first (won't interfere with vsprintf)
 		$text = str_replace('%n', $this->count, $text);
 		return vsprintf($text, $this->parameters);
+	}
+
+
+	public function jsonSerialize() {
+		return $this->__toString();
 	}
 }

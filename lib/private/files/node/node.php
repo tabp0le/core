@@ -1,13 +1,33 @@
 <?php
 /**
- * Copyright (c) 2013 Robin Appelman <icewind@owncloud.com>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Bernhard Posselt <dev@bernhard-posselt.com>
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Vincent Petry <pvince81@owncloud.com>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\Files\Node;
 
+use OC\Files\Filesystem;
+use OCP\Files\FileInfo;
+use OCP\Files\InvalidPathException;
 use OCP\Files\NotFoundException;
 use OCP\Files\NotPermittedException;
 
@@ -28,14 +48,43 @@ class Node implements \OCP\Files\Node {
 	protected $path;
 
 	/**
+	 * @var \OCP\Files\FileInfo
+	 */
+	protected $fileInfo;
+
+	/**
 	 * @param \OC\Files\View $view
 	 * @param \OC\Files\Node\Root $root
 	 * @param string $path
+	 * @param FileInfo $fileInfo
 	 */
-	public function __construct($root, $view, $path) {
+	public function __construct($root, $view, $path, $fileInfo = null) {
 		$this->view = $view;
 		$this->root = $root;
 		$this->path = $path;
+		$this->fileInfo = $fileInfo;
+	}
+
+	/**
+	 * Returns the matching file info
+	 *
+	 * @return FileInfo
+	 * @throws InvalidPathException
+	 * @throws NotFoundException
+	 */
+	public function getFileInfo() {
+		if (!Filesystem::isValidPath($this->path)) {
+			throw new InvalidPathException();
+		}
+		if (!$this->fileInfo) {
+			$fileInfo = $this->view->getFileInfo($this->path);
+			if ($fileInfo instanceof FileInfo) {
+				$this->fileInfo = $fileInfo;
+			} else {
+				throw new NotFoundException();
+			}
+		}
+		return $this->fileInfo;
 	}
 
 	/**
@@ -81,10 +130,16 @@ class Node implements \OCP\Files\Node {
 	 * @throws \OCP\Files\NotPermittedException
 	 */
 	public function touch($mtime = null) {
-		if ($this->checkPermissions(\OCP\PERMISSION_UPDATE)) {
+		if ($this->checkPermissions(\OCP\Constants::PERMISSION_UPDATE)) {
 			$this->sendHooks(array('preTouch'));
 			$this->view->touch($this->path, $mtime);
 			$this->sendHooks(array('postTouch'));
+			if ($this->fileInfo) {
+				if (is_null($mtime)) {
+					$mtime = time();
+				}
+				$this->fileInfo['mtime'] = $mtime;
+			}
 		} else {
 			throw new NotPermittedException();
 		}
@@ -116,10 +171,11 @@ class Node implements \OCP\Files\Node {
 
 	/**
 	 * @return int
+	 * @throws InvalidPathException
+	 * @throws NotFoundException
 	 */
 	public function getId() {
-		$info = $this->view->getFileInfo($this->path);
-		return $info['fileid'];
+		return $this->getFileInfo()->getId();
 	}
 
 	/**
@@ -131,60 +187,83 @@ class Node implements \OCP\Files\Node {
 
 	/**
 	 * @return int
+	 * @throws InvalidPathException
+	 * @throws NotFoundException
 	 */
 	public function getMTime() {
-		return $this->view->filemtime($this->path);
+		return $this->getFileInfo()->getMTime();
 	}
 
 	/**
 	 * @return int
+	 * @throws InvalidPathException
+	 * @throws NotFoundException
 	 */
 	public function getSize() {
-		return $this->view->filesize($this->path);
+		return $this->getFileInfo()->getSize();
 	}
 
 	/**
 	 * @return string
+	 * @throws InvalidPathException
+	 * @throws NotFoundException
 	 */
 	public function getEtag() {
-		$info = $this->view->getFileInfo($this->path);
-		return $info['etag'];
+		return $this->getFileInfo()->getEtag();
 	}
 
 	/**
 	 * @return int
+	 * @throws InvalidPathException
+	 * @throws NotFoundException
 	 */
 	public function getPermissions() {
-		$info = $this->view->getFileInfo($this->path);
-		return $info['permissions'];
+		return $this->getFileInfo()->getPermissions();
 	}
 
 	/**
 	 * @return bool
+	 * @throws InvalidPathException
+	 * @throws NotFoundException
 	 */
 	public function isReadable() {
-		return $this->checkPermissions(\OCP\PERMISSION_READ);
+		return $this->getFileInfo()->isReadable();
 	}
 
 	/**
 	 * @return bool
+	 * @throws InvalidPathException
+	 * @throws NotFoundException
 	 */
 	public function isUpdateable() {
-		return $this->checkPermissions(\OCP\PERMISSION_UPDATE);
+		return $this->getFileInfo()->isUpdateable();
 	}
 
 	/**
 	 * @return bool
+	 * @throws InvalidPathException
+	 * @throws NotFoundException
 	 */
 	public function isDeletable() {
-		return $this->checkPermissions(\OCP\PERMISSION_DELETE);
+		return $this->getFileInfo()->isDeletable();
 	}
 
 	/**
 	 * @return bool
+	 * @throws InvalidPathException
+	 * @throws NotFoundException
 	 */
 	public function isShareable() {
-		return $this->checkPermissions(\OCP\PERMISSION_SHARE);
+		return $this->getFileInfo()->isShareable();
+	}
+
+	/**
+	 * @return bool
+	 * @throws InvalidPathException
+	 * @throws NotFoundException
+	 */
+	public function isCreatable() {
+		return $this->getFileInfo()->isCreatable();
 	}
 
 	/**
@@ -239,5 +318,37 @@ class Node implements \OCP\Files\Node {
 			return false;
 		}
 		return true;
+	}
+
+	public function isMounted() {
+		return $this->getFileInfo()->isMounted();
+	}
+
+	public function isShared() {
+		return $this->getFileInfo()->isShared();
+	}
+
+	public function getMimeType() {
+		return $this->getFileInfo()->getMimetype();
+	}
+
+	public function getMimePart() {
+		return $this->getFileInfo()->getMimePart();
+	}
+
+	public function getType() {
+		return $this->getFileInfo()->getType();
+	}
+
+	public function isEncrypted() {
+		return $this->getFileInfo()->isEncrypted();
+	}
+
+	public function getMountPoint() {
+		return $this->getFileInfo()->getMountPoint();
+	}
+
+	public function getOwner() {
+		return $this->getFileInfo()->getOwner();
 	}
 }

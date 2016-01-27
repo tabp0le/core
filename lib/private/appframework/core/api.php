@@ -1,23 +1,26 @@
 <?php
-
 /**
- * ownCloud - App Framework
+ * @author Bernhard Posselt <dev@bernhard-posselt.com>
+ * @author Lukas Reschke <lukas@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
  *
- * @author Bernhard Posselt
- * @copyright 2012 Bernhard Posselt nukeawhale@gmail.com
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
  *
  */
 
@@ -32,6 +35,7 @@ use OCP\AppFramework\IApi;
  *
  * Should you find yourself in need for more methods, simply inherit from this
  * class and add your methods
+ * @deprecated
  */
 class API implements IApi{
 
@@ -49,6 +53,7 @@ class API implements IApi{
 	/**
 	 * Gets the userid of the current user
 	 * @return string the user id of the current user
+	 * @deprecated Use \OC::$server->getUserSession()->getUser()->getUID()
 	 */
 	public function getUserId(){
 		return \OCP\User::getUser();
@@ -57,6 +62,7 @@ class API implements IApi{
 
 	/**
 	 * Adds a new javascript file
+	 * @deprecated include javascript and css in template files
 	 * @param string $scriptName the name of the javascript in js/ without the suffix
 	 * @param string $appName the name of the app, defaults to the current one
 	 */
@@ -70,6 +76,7 @@ class API implements IApi{
 
 	/**
 	 * Adds a new css file
+	 * @deprecated include javascript and css in template files
 	 * @param string $styleName the name of the css file in css/without the suffix
 	 * @param string $appName the name of the app, defaults to the current one
 	 */
@@ -82,6 +89,7 @@ class API implements IApi{
 
 
 	/**
+	 * @deprecated include javascript and css in template files
 	 * shorthand for addScript for files in the 3rdparty directory
 	 * @param string $name the name of the file without the suffix
 	 */
@@ -91,6 +99,7 @@ class API implements IApi{
 
 
 	/**
+	 * @deprecated include javascript and css in template files
 	 * shorthand for addStyle for files in the 3rdparty directory
 	 * @param string $name the name of the file without the suffix
 	 */
@@ -100,7 +109,10 @@ class API implements IApi{
 
 
 	/**
+	 * @deprecated communication between apps should happen over built in
+	 * callbacks or interfaces (check the contacts and calendar managers)
 	 * Checks if an app is enabled
+	 * also use \OC::$server->getAppManager()->isEnabledForUser($appName)
 	 * @param string $appName the name of an app
 	 * @return bool true if app is enabled
 	 */
@@ -110,41 +122,44 @@ class API implements IApi{
 
 
 	/**
-	 * used to return and open a new eventsource
-	 * @return \OC_EventSource a new open EventSource class
+	 * used to return and open a new event source
+	 * @return \OCP\IEventSource a new open EventSource class
+	 * @deprecated Use \OC::$server->createEventSource();
 	 */
 	public function openEventSource(){
-		# TODO: use public api
-		return new \OC_EventSource();
+		return \OC::$server->createEventSource();
 	}
 
 	/**
-	 * @brief connects a function to a hook
+	 * @deprecated register hooks directly for class that build in hook interfaces
+	 * connects a function to a hook
 	 * @param string $signalClass class name of emitter
 	 * @param string $signalName name of signal
 	 * @param string $slotClass class name of slot
 	 * @param string $slotName name of slot, in another word, this is the
 	 *               name of the method that will be called when registered
 	 *               signal is emitted.
-	 * @return bool, always true
+	 * @return bool always true
 	 */
 	public function connectHook($signalClass, $signalName, $slotClass, $slotName) {
 		return \OCP\Util::connectHook($signalClass, $signalName, $slotClass, $slotName);
 	}
 
 	/**
-	 * @brief Emits a signal. To get data from the slot use references!
+	 * @deprecated implement the emitter interface instead
+	 * Emits a signal. To get data from the slot use references!
 	 * @param string $signalClass class name of emitter
 	 * @param string $signalName name of signal
-	 * @param array $params defautl: array() array with additional data
-	 * @return bool, true if slots exists or false if not
+	 * @param array $params default: array() array with additional data
+	 * @return bool true if slots exists or false if not
 	 */
 	public function emitHook($signalClass, $signalName, $params = array()) {
 		return  \OCP\Util::emitHook($signalClass, $signalName, $params);
 	}
 
 	/**
-	 * @brief clear hooks
+	 * clear hooks
+	 * @deprecated clear hooks directly for class that build in hook interfaces
 	 * @param string $signalClass
 	 * @param string $signalName
 	 */
@@ -160,6 +175,7 @@ class API implements IApi{
 	 * @param string $className full namespace and class name of the class
 	 * @param string $methodName the name of the static method that should be
 	 * called
+	 * @deprecated Use \OC::$server->getJobList()->add();
 	 */
 	public function addRegularTask($className, $methodName) {
 		\OCP\Backgroundjob::addRegularTask($className, $methodName);

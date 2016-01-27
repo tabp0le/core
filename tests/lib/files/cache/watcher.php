@@ -8,25 +8,35 @@
 
 namespace Test\Files\Cache;
 
-class Watcher extends \PHPUnit_Framework_TestCase {
+/**
+ * Class Watcher
+ *
+ * @group DB
+ *
+ * @package Test\Files\Cache
+ */
+class Watcher extends \Test\TestCase {
 
 	/**
 	 * @var \OC\Files\Storage\Storage[] $storages
 	 */
 	private $storages = array();
 
-	public function setUp() {
-		\OC\Files\Filesystem::clearMounts();
+	protected function setUp() {
+		parent::setUp();
+
+		$this->loginAsUser();
 	}
 
-	public function tearDown() {
+	protected function tearDown() {
 		foreach ($this->storages as $storage) {
 			$cache = $storage->getCache();
 			$ids = $cache->getAll();
-			$permissionsCache = $storage->getPermissionsCache();
-			$permissionsCache->removeMultiple($ids, \OC_User::getUser());
 			$cache->clear();
 		}
+
+		$this->logout();
+		parent::tearDown();
 	}
 
 	/**
@@ -36,6 +46,7 @@ class Watcher extends \PHPUnit_Framework_TestCase {
 		$storage = $this->getTestStorage();
 		$cache = $storage->getCache();
 		$updater = $storage->getWatcher();
+		$updater->setPolicy(\OC\Files\Cache\Watcher::CHECK_ONCE);
 
 		//set the mtime to the past so it can detect an mtime change
 		$cache->put('', array('storage_mtime' => 10));
@@ -76,6 +87,7 @@ class Watcher extends \PHPUnit_Framework_TestCase {
 		$storage = $this->getTestStorage();
 		$cache = $storage->getCache();
 		$updater = $storage->getWatcher();
+		$updater->setPolicy(\OC\Files\Cache\Watcher::CHECK_ONCE);
 
 		//set the mtime to the past so it can detect an mtime change
 		$cache->put('', array('storage_mtime' => 10));
@@ -92,6 +104,7 @@ class Watcher extends \PHPUnit_Framework_TestCase {
 		$storage = $this->getTestStorage();
 		$cache = $storage->getCache();
 		$updater = $storage->getWatcher();
+		$updater->setPolicy(\OC\Files\Cache\Watcher::CHECK_ONCE);
 
 		//set the mtime to the past so it can detect an mtime change
 		$cache->put('foo.txt', array('storage_mtime' => 10));

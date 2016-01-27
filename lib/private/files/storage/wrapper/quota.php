@@ -1,12 +1,31 @@
 <?php
 /**
- * Copyright (c) 2013 Robin Appelman <icewind@owncloud.com>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Jörn Friedrich Dreyer <jfd@butonic.de>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ * @author Vincent Petry <pvince81@owncloud.com>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\Files\Storage\Wrapper;
+
+use OCP\Files\Cache\ICacheEntry;
 
 class Quota extends Wrapper {
 
@@ -30,7 +49,7 @@ class Quota extends Wrapper {
 	}
 
 	/**
-	 * @return quota value
+	 * @return int quota value
 	 */
 	public function getQuota() {
 		return $this->quota;
@@ -38,19 +57,19 @@ class Quota extends Wrapper {
 
 	/**
 	 * @param string $path
+	 * @param \OC\Files\Storage\Storage $storage
 	 */
-	protected function getSize($path) {
-		$cache = $this->getCache();
+	protected function getSize($path, $storage = null) {
+		if (is_null($storage)) {
+			$cache = $this->getCache();
+		} else {
+			$cache = $storage->getCache();
+		}
 		$data = $cache->get($path);
-		if (is_array($data) and isset($data['size'])) {
-			if (isset($data['unencrypted_size'])
-				&& $data['unencrypted_size'] > 0
-			) {
-				return $data['unencrypted_size'];
-			}
+		if ($data instanceof ICacheEntry and isset($data['size'])) {
 			return $data['size'];
 		} else {
-			return \OC\Files\SPACE_NOT_COMPUTED;
+			return \OCP\Files\FileInfo::SPACE_NOT_COMPUTED;
 		}
 	}
 
@@ -66,10 +85,17 @@ class Quota extends Wrapper {
 		} else {
 			$used = $this->getSize($this->sizeRoot);
 			if ($used < 0) {
-				return \OC\Files\SPACE_NOT_COMPUTED;
+				return \OCP\Files\FileInfo::SPACE_NOT_COMPUTED;
 			} else {
 				$free = $this->storage->free_space($path);
-				return min($free, (max($this->quota - $used, 0)));
+				$quotaFree = max($this->quota - $used, 0);
+				// if free space is known
+				if ($free >= 0) {
+					$free = min($free, $quotaFree);
+				} else {
+					$free = $quotaFree;
+				}
+				return $free;
 			}
 		}
 	}
@@ -117,9 +143,41 @@ class Quota extends Wrapper {
 		$source = $this->storage->fopen($path, $mode);
 		$free = $this->free_space('');
 		if ($source && $free >= 0 && $mode !== 'r' && $mode !== 'rb') {
-			return \OC\Files\Stream\Quota::wrap($source, $free);
+			// only apply quota for files, not metadata, trash or others
+			if (strpos(ltrim($path, '/'), 'files/') === 0) {
+				return \OC\Files\Stream\Quota::wrap($source, $free);
+			}
+		}
+		return $source;
+	}
+
+	/**
+	 * @param \OCP\Files\Storage $sourceStorage
+	 * @param string $sourceInternalPath
+	 * @param string $targetInternalPath
+	 * @return bool
+	 */
+	public function copyFromStorage(\OCP\Files\Storage $sourceStorage, $sourceInternalPath, $targetInternalPath) {
+		$free = $this->free_space('');
+		if ($free < 0 or $this->getSize($sourceInternalPath, $sourceStorage) < $free) {
+			return $this->storage->copyFromStorage($sourceStorage, $sourceInternalPath, $targetInternalPath);
 		} else {
-			return $source;
+			return false;
+		}
+	}
+
+	/**
+	 * @param \OCP\Files\Storage $sourceStorage
+	 * @param string $sourceInternalPath
+	 * @param string $targetInternalPath
+	 * @return bool
+	 */
+	public function moveFromStorage(\OCP\Files\Storage $sourceStorage, $sourceInternalPath, $targetInternalPath) {
+		$free = $this->free_space('');
+		if ($free < 0 or $this->getSize($sourceInternalPath, $sourceStorage) < $free) {
+			return $this->storage->moveFromStorage($sourceStorage, $sourceInternalPath, $targetInternalPath);
+		} else {
+			return false;
 		}
 	}
 }

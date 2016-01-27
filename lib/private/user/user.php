@@ -1,73 +1,96 @@
 <?php
-
 /**
- * Copyright (c) 2013 Robin Appelman <icewind@owncloud.com>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Arthur Schiwon <blizzz@owncloud.com>
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Björn Schießle <schiessle@owncloud.com>
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Lukas Reschke <lukas@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\User;
 
 use OC\Hooks\Emitter;
+use OCP\IAvatarManager;
+use OCP\IImage;
+use OCP\IURLGenerator;
+use OCP\IUser;
+use OCP\IConfig;
+use OCP\UserInterface;
 
-class User {
-	/**
-	 * @var string $uid
-	 */
+class User implements IUser {
+	/** @var string $uid */
 	private $uid;
 
-	/**
-	 * @var string $displayName
-	 */
+	/** @var string $displayName */
 	private $displayName;
 
-	/**
-	 * @var \OC_User_Backend $backend
-	 */
+	/** @var UserInterface $backend */
 	private $backend;
 
-	/**
-	 * @var bool $enabled
-	 */
+	/** @var bool $enabled */
 	private $enabled;
 
-	/**
-	 * @var Emitter | Manager $emitter
-	 */
+	/** @var Emitter|Manager $emitter */
 	private $emitter;
 
-	/**
-	 * @var string $home
-	 */
+	/** @var string $home */
 	private $home;
 
-	/**
-	 * @var \OC\AllConfig $config
-	 */
+	/** @var int $lastLogin */
+	private $lastLogin;
+
+	/** @var \OCP\IConfig $config */
 	private $config;
+
+	/** @var IAvatarManager */
+	private $avatarManager;
+
+	/** @var IURLGenerator */
+	private $urlGenerator;
 
 	/**
 	 * @param string $uid
-	 * @param \OC_User_Backend $backend
+	 * @param UserInterface $backend
 	 * @param \OC\Hooks\Emitter $emitter
-	 * @param \OC\AllConfig $config
+	 * @param IConfig|null $config
+	 * @param IURLGenerator $urlGenerator
 	 */
-	public function __construct($uid, $backend, $emitter = null, $config = null) {
+	public function __construct($uid, $backend, $emitter = null, IConfig $config = null, $urlGenerator = null) {
 		$this->uid = $uid;
-		if ($backend and $backend->implementsActions(OC_USER_BACKEND_GET_DISPLAYNAME)) {
-			$this->displayName = $backend->getDisplayName($uid);
-		} else {
-			$this->displayName = $uid;
-		}
 		$this->backend = $backend;
 		$this->emitter = $emitter;
 		$this->config = $config;
+		$this->urlGenerator = $urlGenerator;
 		if ($this->config) {
 			$enabled = $this->config->getUserValue($uid, 'core', 'enabled', 'true');
 			$this->enabled = ($enabled === 'true');
+			$this->lastLogin = $this->config->getUserValue($uid, 'login', 'lastLogin', 0);
 		} else {
 			$this->enabled = true;
+			$this->lastLogin = \OC::$server->getConfig()->getUserValue($uid, 'login', 'lastLogin', 0);
+		}
+		if (is_null($this->urlGenerator)) {
+			$this->urlGenerator = \OC::$server->getURLGenerator();
 		}
 	}
 
@@ -81,11 +104,27 @@ class User {
 	}
 
 	/**
-	 * get the displayname for the user, if no specific displayname is set it will fallback to the user id
+	 * get the display name for the user, if no specific display name is set it will fallback to the user id
 	 *
 	 * @return string
 	 */
 	public function getDisplayName() {
+		if (!isset($this->displayName)) {
+			$displayName = '';
+			if ($this->backend and $this->backend->implementsActions(\OC_User_Backend::GET_DISPLAYNAME)) {
+				// get display name and strip whitespace from the beginning and end of it
+				$backendDisplayName = $this->backend->getDisplayName($this->uid);
+				if (is_string($backendDisplayName)) {
+					$displayName = trim($backendDisplayName);
+				}
+			}
+
+			if (!empty($displayName)) {
+				$this->displayName = $displayName;
+			} else {
+				$this->displayName = $this->uid;
+			}
+		}
 		return $this->displayName;
 	}
 
@@ -96,13 +135,52 @@ class User {
 	 * @return bool
 	 */
 	public function setDisplayName($displayName) {
-		if ($this->canChangeDisplayName()) {
-			$this->displayName = $displayName;
+		$displayName = trim($displayName);
+		if ($this->backend->implementsActions(\OC_User_Backend::SET_DISPLAYNAME) && !empty($displayName)) {
 			$result = $this->backend->setDisplayName($this->uid, $displayName);
+			if ($result) {
+				$this->displayName = $displayName;
+				$this->triggerChange();
+			}
 			return $result !== false;
 		} else {
 			return false;
 		}
+	}
+
+	/**
+	 * set the email address of the user
+	 *
+	 * @param string|null $mailAddress
+	 * @return void
+	 * @since 9.0.0
+	 */
+	public function setEMailAddress($mailAddress) {
+		if($mailAddress === '') {
+			$this->config->deleteUserValue($this->uid, 'settings', 'email');
+		} else {
+			$this->config->setUserValue($this->uid, 'settings', 'email', $mailAddress);
+		}
+		$this->triggerChange();
+	}
+
+	/**
+	 * returns the timestamp of the user's last login or 0 if the user did never
+	 * login
+	 *
+	 * @return int
+	 */
+	public function getLastLogin() {
+		return $this->lastLogin;
+	}
+
+	/**
+	 * updates the timestamp of the most recent login of this user
+	 */
+	public function updateLastLoginTimestamp() {
+		$this->lastLogin = time();
+		\OC::$server->getConfig()->setUserValue(
+			$this->uid, 'login', 'lastLogin', $this->lastLogin);
 	}
 
 	/**
@@ -115,6 +193,26 @@ class User {
 			$this->emitter->emit('\OC\User', 'preDelete', array($this));
 		}
 		$result = $this->backend->deleteUser($this->uid);
+		if ($result) {
+
+			// FIXME: Feels like an hack - suggestions?
+
+			// We have to delete the user from all groups
+			foreach (\OC_Group::getUserGroups($this->uid) as $i) {
+				\OC_Group::removeFromGroup($this->uid, $i);
+			}
+			// Delete the user's keys in preferences
+			\OC::$server->getConfig()->deleteAllUserValues($this->uid);
+
+			// Delete user files in /data/
+			\OC_Helper::rmdirr(\OC_User::getHome($this->uid));
+
+			// Delete the users entry in the storage table
+			\OC\Files\Cache\Storage::remove('home::' . $this->uid);
+
+			\OC::$server->getCommentsManager()->deleteReferencesOfActor('user', $this->uid);
+		}
+
 		if ($this->emitter) {
 			$this->emitter->emit('\OC\User', 'postDelete', array($this));
 		}
@@ -128,11 +226,11 @@ class User {
 	 * @param string $recoveryPassword for the encryption app to reset encryption keys
 	 * @return bool
 	 */
-	public function setPassword($password, $recoveryPassword) {
+	public function setPassword($password, $recoveryPassword = null) {
 		if ($this->emitter) {
 			$this->emitter->emit('\OC\User', 'preSetPassword', array($this, $password, $recoveryPassword));
 		}
-		if ($this->backend->implementsActions(\OC_USER_BACKEND_SET_PASSWORD)) {
+		if ($this->backend->implementsActions(\OC_User_Backend::SET_PASSWORD)) {
 			$result = $this->backend->setPassword($this->uid, $password);
 			if ($this->emitter) {
 				$this->emitter->emit('\OC\User', 'postSetPassword', array($this, $password, $recoveryPassword));
@@ -150,7 +248,7 @@ class User {
 	 */
 	public function getHome() {
 		if (!$this->home) {
-			if ($this->backend->implementsActions(\OC_USER_BACKEND_GET_HOME) and $home = $this->backend->getHome($this->uid)) {
+			if ($this->backend->implementsActions(\OC_User_Backend::GET_HOME) and $home = $this->backend->getHome($this->uid)) {
 				$this->home = $home;
 			} elseif ($this->config) {
 				$this->home = $this->config->getSystemValue('datadirectory') . '/' . $this->uid;
@@ -162,12 +260,24 @@ class User {
 	}
 
 	/**
+	 * Get the name of the backend class the user is connected with
+	 *
+	 * @return string
+	 */
+	public function getBackendClassName() {
+		if($this->backend instanceof \OCP\IUserBackend) {
+			return $this->backend->getBackendName();
+		}
+		return get_class($this->backend);
+	}
+
+	/**
 	 * check if the backend allows the user to change his avatar on Personal page
 	 *
 	 * @return bool
 	 */
 	public function canChangeAvatar() {
-		if ($this->backend->implementsActions(\OC_USER_BACKEND_PROVIDE_AVATAR)) {
+		if ($this->backend->implementsActions(\OC_User_Backend::PROVIDE_AVATAR)) {
 			return $this->backend->canChangeAvatar($this->uid);
 		}
 		return true;
@@ -179,7 +289,7 @@ class User {
 	 * @return bool
 	 */
 	public function canChangePassword() {
-		return $this->backend->implementsActions(\OC_USER_BACKEND_SET_PASSWORD);
+		return $this->backend->implementsActions(\OC_User_Backend::SET_PASSWORD);
 	}
 
 	/**
@@ -191,7 +301,7 @@ class User {
 		if ($this->config and $this->config->getSystemValue('allow_user_to_change_display_name') === false) {
 			return false;
 		} else {
-			return $this->backend->implementsActions(\OC_USER_BACKEND_SET_DISPLAYNAME);
+			return $this->backend->implementsActions(\OC_User_Backend::SET_DISPLAYNAME);
 		}
 	}
 
@@ -216,4 +326,69 @@ class User {
 			$this->config->setUserValue($this->uid, 'core', 'enabled', $enabled);
 		}
 	}
+
+	/**
+	 * get the users email address
+	 *
+	 * @return string|null
+	 * @since 9.0.0
+	 */
+	public function getEMailAddress() {
+		return $this->config->getUserValue($this->uid, 'settings', 'email', null);
+	}
+
+	/**
+	 * get the avatar image if it exists
+	 *
+	 * @param int $size
+	 * @return IImage|null
+	 * @since 9.0.0
+	 */
+	public function getAvatarImage($size) {
+		// delay the initialization
+		if (is_null($this->avatarManager)) {
+			$this->avatarManager = \OC::$server->getAvatarManager();
+		}
+
+		$avatar = $this->avatarManager->getAvatar($this->uid);
+		$image = $avatar->get(-1);
+		if ($image) {
+			return $image;
+		}
+
+		return null;
+	}
+
+	/**
+	 * get the federation cloud id
+	 *
+	 * @return string
+	 * @since 9.0.0
+	 */
+	public function getCloudId() {
+		$uid = $this->getUID();
+		$server = $this->urlGenerator->getAbsoluteURL('/');
+		return $uid . '@' . rtrim( $this->removeProtocolFromUrl($server), '/');
+	}
+
+	/**
+	 * @param string $url
+	 * @return string
+	 */
+	private function removeProtocolFromUrl($url) {
+		if (strpos($url, 'https://') === 0) {
+			return substr($url, strlen('https://'));
+		} else if (strpos($url, 'http://') === 0) {
+			return substr($url, strlen('http://'));
+		}
+
+		return $url;
+	}
+
+	public function triggerChange() {
+		if ($this->emitter) {
+			$this->emitter->emit('\OC\User', 'changeUser', array($this));
+		}
+	}
+
 }

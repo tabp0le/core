@@ -20,27 +20,61 @@
 *
 */
 
-class Test_Tags extends PHPUnit_Framework_TestCase {
+/**
+ * Class Test_Tags
+ *
+ * @group DB
+ */
+class Test_Tags extends \Test\TestCase {
 
 	protected $objectType;
+	/** @var \OCP\IUser */
 	protected $user;
+	/** @var \OCP\IUserSession */
+	protected $userSession;
 	protected $backupGlobals = FALSE;
+	/** @var \OC\Tagging\TagMapper */
+	protected $tagMapper;
+	/** @var \OCP\ITagManager */
+	protected $tagMgr;
 
-	public function setUp() {
+	protected function setUp() {
+		parent::setUp();
 
 		OC_User::clearBackends();
 		OC_User::useBackend('dummy');
-		$this->user = uniqid('user_');
-		$this->objectType = uniqid('type_');
-		OC_User::createUser($this->user, 'pass');
-		OC_User::setUserId($this->user);
-		$this->tagMgr = new OC\TagManager($this->user);
+		$userId = $this->getUniqueID('user_');
+		\OC::$server->getUserManager()->createUser($userId, 'pass');
+		OC_User::setUserId($userId);
+		$this->user = new OC\User\User($userId, null);
+		$this->userSession = $this->getMock('\OCP\IUserSession');
+		$this->userSession
+			->expects($this->any())
+			->method('getUser')
+			->will($this->returnValue($this->user));
+
+		$this->objectType = $this->getUniqueID('type_');
+		$this->tagMapper = new OC\Tagging\TagMapper(\OC::$server->getDatabaseConnection());
+		$this->tagMgr = new OC\TagManager($this->tagMapper, $this->userSession);
 
 	}
 
-	public function tearDown() {
-		//$query = OC_DB::prepare('DELETE FROM `*PREFIX*vcategories` WHERE `item_type` = ?');
-		//$query->execute(array('test'));
+	protected function tearDown() {
+		$conn = \OC::$server->getDatabaseConnection();
+		$conn->executeQuery('DELETE FROM `*PREFIX*vcategory_to_object`');
+		$conn->executeQuery('DELETE FROM `*PREFIX*vcategory`');
+
+		parent::tearDown();
+	}
+
+	public function testTagManagerWithoutUserReturnsNull() {
+		$this->userSession = $this->getMock('\OCP\IUserSession');
+		$this->userSession
+			->expects($this->any())
+			->method('getUser')
+			->will($this->returnValue(null));
+		$this->tagMgr = new OC\TagManager($this->tagMapper, $this->userSession);
+		$this->assertNull($this->tagMgr->load($this->objectType));
 	}
 
 	public function testInstantiateWithDefaults() {
@@ -84,7 +118,36 @@ class Test_Tags extends PHPUnit_Framework_TestCase {
 			$this->assertTrue($tagger->hasTag($tag));
 		}
 
-		$this->assertCount(4, $tagger->getTags(), 'Not all tags added');
+		$tagMaps = $tagger->getTags();
+		$this->assertCount(4, $tagMaps, 'Not all tags added');
+		foreach($tagMaps as $tagMap) {
+			$this->assertEquals(null, $tagMap['id']);
+		}
+
+		// As addMultiple has been called without $sync=true, the tags aren't
+		// saved to the database, so they're gone when we reload $tagger:
+
+		$tagger = $this->tagMgr->load($this->objectType);
+		$this->assertEquals(0, count($tagger->getTags()));
+
+		// Now, we call addMultiple() with $sync=true so the tags will be
+		// be saved to the database.
+		$result = $tagger->addMultiple($tags, true);
+		$this->assertTrue((bool)$result);
+
+		$tagMaps = $tagger->getTags();
+		foreach($tagMaps as $tagMap) {
+			$this->assertNotEquals(null, $tagMap['id']);
+		}
+
+		// Reload the tagger.
+		$tagger = $this->tagMgr->load($this->objectType);
+
+		foreach($tags as $tag) {
+			$this->assertTrue($tagger->hasTag($tag));
+		}
+
+		$this->assertCount(4, $tagger->getTags(), 'Not all previously saved tags found');
 	}
 
 	public function testIsEmpty() {
@@ -99,7 +162,62 @@ class Test_Tags extends PHPUnit_Framework_TestCase {
 		$this->assertFalse($tagger->isEmpty());
 	}
 
-	public function testdeleteTags() {
+	public function testGetTagsForObjects() {
+		$defaultTags = array('Friends', 'Family', 'Work', 'Other');
+		$tagger = $this->tagMgr->load($this->objectType, $defaultTags);
+
+		$tagger->tagAs(1, 'Friends');
+		$tagger->tagAs(1, 'Other');
+		$tagger->tagAs(2, 'Family');
+
+		$tags = $tagger->getTagsForObjects(array(1));
+		$this->assertEquals(1, count($tags));
+		$tags = current($tags);
+		sort($tags);
+		$this->assertSame(array('Friends', 'Other'), $tags);
+
+		$tags = $tagger->getTagsForObjects(array(1, 2));
+		$this->assertEquals(2, count($tags));
+		$tags1 = $tags[1];
+		sort($tags1);
+		$this->assertSame(array('Friends', 'Other'), $tags1);
+		$this->assertSame(array('Family'), $tags[2]);
+		$this->assertEquals(
+			array(),
+			$tagger->getTagsForObjects(array(4))
+		);
+		$this->assertEquals(
+			array(),
+			$tagger->getTagsForObjects(array(4, 5))
+		);
+	}
+
+	public function testGetTagsForObjectsMassiveResults() {
+		$defaultTags = array('tag1');
+		$tagger = $this->tagMgr->load($this->objectType, $defaultTags);
+		$tagData = $tagger->getTags();
+		$tagId = $tagData[0]['id'];
+		$tagType = $tagData[0]['type'];
+
+		$conn = \OC::$server->getDatabaseConnection();
+		$statement = $conn->prepare(
+				'INSERT INTO `*PREFIX*vcategory_to_object` ' .
+				'(`objid`, `categoryid`, `type`) VALUES ' .
+				'(?, ?, ?)'
+		);
+
+		// insert lots of entries
+		$idsArray = array();
+		for($i = 1; $i <= 1500; $i++) {
+			$statement->execute(array($i, $tagId, $tagType));
+			$idsArray[] = $i;
+		}
+
+		$tags = $tagger->getTagsForObjects($idsArray);
+		$this->assertEquals(1500, count($tags));
+	}
+
+	public function testDeleteTags() {
 		$defaultTags = array('Friends', 'Family', 'Work', 'Other');
 		$tagger = $this->tagMgr->load($this->objectType, $defaultTags);
 
@@ -110,7 +228,6 @@ class Test_Tags extends PHPUnit_Framework_TestCase {
 
 		$tagger->delete(array('Friends', 'Work', 'Other'));
 		$this->assertEquals(0, count($tagger->getTags()));
-
 	}
 
 	public function testRenameTag() {
@@ -120,8 +237,8 @@ class Test_Tags extends PHPUnit_Framework_TestCase {
 		$this->assertTrue($tagger->rename('Wrok', 'Work'));
 		$this->assertTrue($tagger->hasTag('Work'));
 		$this->assertFalse($tagger->hastag('Wrok'));
-		$this->assertFalse($tagger->rename('Wrok', 'Work'));
-
+		$this->assertFalse($tagger->rename('Wrok', 'Work')); // Rename non-existant tag.
+		$this->assertFalse($tagger->rename('Work', 'Family')); // Collide with existing tag.
 	}
 
 	public function testTagAs() {
@@ -130,7 +247,7 @@ class Test_Tags extends PHPUnit_Framework_TestCase {
 		$tagger = $this->tagMgr->load($this->objectType);
 
 		foreach($objids as $id) {
-			$tagger->tagAs($id, 'Family');
+			$this->assertTrue($tagger->tagAs($id, 'Family'));
 		}
 
 		$this->assertEquals(1, count($tagger->getTags()));
@@ -160,7 +277,38 @@ class Test_Tags extends PHPUnit_Framework_TestCase {
 	public function testFavorite() {
 		$tagger = $this->tagMgr->load($this->objectType);
 		$this->assertTrue($tagger->addToFavorites(1));
+		$this->assertEquals(array(1), $tagger->getFavorites());
 		$this->assertTrue($tagger->removeFromFavorites(1));
+		$this->assertEquals(array(), $tagger->getFavorites());
+	}
+
+	public function testShareTags() {
+		$testTag = 'TestTag';
+		OCP\Share::registerBackend('test', 'Test_Share_Backend');
+
+		$tagger = $this->tagMgr->load('test');
+		$tagger->tagAs(1, $testTag);
+
+		$otherUserId = $this->getUniqueID('user2_');
+		\OC::$server->getUserManager()->createUser($otherUserId, 'pass');
+		OC_User::setUserId($otherUserId);
+		$otherUserSession = $this->getMock('\OCP\IUserSession');
+		$otherUserSession
+			->expects($this->any())
+			->method('getUser')
+			->will($this->returnValue(new OC\User\User($otherUserId, null)));
+
+		$otherTagMgr = new OC\TagManager($this->tagMapper, $otherUserSession);
+		$otherTagger = $otherTagMgr->load('test');
+		$this->assertFalse($otherTagger->hasTag($testTag));
+
+		OC_User::setUserId($this->user->getUID());
+		OCP\Share::shareItem('test', 1, OCP\Share::SHARE_TYPE_USER, $otherUserId, \OCP\Constants::PERMISSION_READ);
+
+		OC_User::setUserId($otherUserId);
+		$otherTagger = $otherTagMgr->load('test', array(), true); // Update tags, load shared ones.
+		$this->assertTrue($otherTagger->hasTag($testTag));
+		$this->assertContains(1, $otherTagger->getIdsForTag($testTag));
 	}
 
 }

@@ -1,23 +1,36 @@
 <?php
 /**
- * ownCloud
+ * @author Adam Williamson <awilliam@redhat.com>
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Björn Schießle <schiessle@owncloud.com>
+ * @author Brice Maron <brice@bmaron.net>
+ * @author Frank Karlitschek <frank@owncloud.org>
+ * @author Hendrik Leppelsack <hendrik@leppelsack.de>
+ * @author Individual IT Services <info@individual-it.net>
+ * @author Jakob Sack <mail@jakobsack.de>
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Jörn Friedrich Dreyer <jfd@butonic.de>
+ * @author Lukas Reschke <lukas@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Raghu Nayyar <hey@raghunayyar.com>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ * @author Vincent Petry <pvince81@owncloud.com>
  *
- * @author Frank Karlitschek
- * @author Jakob Sack
- * @copyright 2012 Frank Karlitschek frank@owncloud.org
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
  *
  */
 
@@ -27,202 +40,230 @@ require_once __DIR__.'/template/functions.php';
  * This class provides the templates for ownCloud.
  */
 class OC_Template extends \OC\Template\Base {
-	private $renderas; // Create a full page?
+
+	/** @var string */
+	private $renderAs; // Create a full page?
+
+	/** @var string */
 	private $path; // The path to the template
-	private $headers=array(); //custom headers
+
+	/** @var array */
+	private $headers = array(); //custom headers
+
+	/** @var string */
+	protected $app; // app id
 
 	/**
-	 * @brief Constructor
+	 * Constructor
 	 * @param string $app app providing the template
 	 * @param string $name of the template file (without suffix)
-	 * @param string $renderas = ""; produce a full page
+	 * @param string $renderAs = ""; produce a full page
+	 * @param bool $registerCall = true
 	 * @return OC_Template object
 	 *
 	 * This function creates an OC_Template object.
 	 *
-	 * If $renderas is set, OC_Template will try to produce a full page in the
-	 * according layout. For now, renderas can be set to "guest", "user" or
+	 * If $renderAs is set, OC_Template will try to produce a full page in the
+	 * according layout. For now, $renderAs can be set to "guest", "user" or
 	 * "admin".
 	 */
-	public function __construct( $app, $name, $renderas = "" ) {
+	
+	protected static $initTemplateEngineFirstRun = true;
+	
+	public function __construct( $app, $name, $renderAs = "", $registerCall = true ) {
 		// Read the selected theme from the config file
+		self::initTemplateEngine($renderAs);
+		
 		$theme = OC_Util::getTheme();
 
-		// Read the detected formfactor and use the right file name.
-		$fext = self::getFormFactorExtension();
-
-		$requesttoken = OC::$session ? OC_Util::callRegister() : '';
+		$requestToken = (OC::$server->getSession() && $registerCall) ? \OCP\Util::callRegister() : '';
 
 		$parts = explode('/', $app); // fix translation when app is something like core/lostpassword
-		$l10n = OC_L10N::get($parts[0]);
+		$l10n = \OC::$server->getL10N($parts[0]);
 		$themeDefaults = new OC_Defaults();
 
-		list($path, $template) = $this->findTemplate($theme, $app, $name, $fext);
+		list($path, $template) = $this->findTemplate($theme, $app, $name);
 
 		// Set the private data
-		$this->renderas = $renderas;
+		$this->renderAs = $renderAs;
 		$this->path = $path;
+		$this->app = $app;
 
-		parent::__construct($template, $requesttoken, $l10n, $themeDefaults);
-
-		// Some headers to enhance security
-		header('X-XSS-Protection: 1; mode=block'); // Enforce browser based XSS filters
-		header('X-Content-Type-Options: nosniff'); // Disable sniffing the content type for IE
-
-		// iFrame Restriction Policy
-		$xFramePolicy = OC_Config::getValue('xframe_restriction', true);
-		if($xFramePolicy) {
-			header('X-Frame-Options: Sameorigin'); // Disallow iFraming from other domains
-		}
-		
-		// Content Security Policy
-		// If you change the standard policy, please also change it in config.sample.php
-		$policy = OC_Config::getValue('custom_csp_policy',
-			'default-src \'self\'; '
-			.'script-src \'self\' \'unsafe-eval\'; '
-			.'style-src \'self\' \'unsafe-inline\'; '
-			.'frame-src *; '
-			.'img-src *; '
-			.'font-src \'self\' data:; '
-			.'media-src *');
-		header('Content-Security-Policy:'.$policy); // Standard
-
+		parent::__construct($template, $requestToken, $l10n, $themeDefaults);
 	}
 
-	/**
-	 * autodetect the formfactor of the used device
-	 * default -> the normal desktop browser interface
-	 * mobile -> interface for smartphones
-	 * tablet -> interface for tablets
-	 * standalone -> the default interface but without header, footer and
-	 *	sidebar, just the application. Useful to use just a specific
-	 *	app on the desktop in a standalone window.
-	 */
-	public static function detectFormfactor() {
-		// please add more useragent strings for other devices
-		if(isset($_SERVER['HTTP_USER_AGENT'])) {
-			if(stripos($_SERVER['HTTP_USER_AGENT'], 'ipad')>0) {
-				$mode='tablet';
-			}elseif(stripos($_SERVER['HTTP_USER_AGENT'], 'iphone')>0) {
-				$mode='mobile';
-			}elseif((stripos($_SERVER['HTTP_USER_AGENT'], 'N9')>0)
-				and (stripos($_SERVER['HTTP_USER_AGENT'], 'nokia')>0)) {
-				$mode='mobile';
-			}else{
-				$mode='default';
+	public static function initTemplateEngine($renderAs) {
+		if (self::$initTemplateEngineFirstRun){
+			
+			//apps that started before the template initialization can load their own scripts/styles
+			//so to make sure this scripts/styles here are loaded first we use OC_Util::addScript() with $prepend=true
+			//meaning the last script/style in this list will be loaded first
+			if (\OC::$server->getSystemConfig()->getValue ('installed', false) && $renderAs !== 'error' && !\OCP\Util::needUpgrade()) {
+				if (\OC::$server->getConfig ()->getAppValue ( 'core', 'backgroundjobs_mode', 'ajax' ) == 'ajax') {
+					OC_Util::addScript ( 'backgroundjobs', null, true );
+				}
 			}
-		}else{
-			$mode='default';
-		}
-		return($mode);
-	}
 
-	/**
-	 * @brief Returns the formfactor extension for current formfactor
-	 */
-	static public function getFormFactorExtension()
-	{
-		if (!\OC::$session) {
-			return '';
-		}
-		// if the formfactor is not yet autodetected do the
-		// autodetection now. For possible formfactors check the
-		// detectFormfactor documentation
-		if (!\OC::$session->exists('formfactor')) {
-			\OC::$session->set('formfactor', self::detectFormfactor());
-		}
-		// allow manual override via GET parameter
-		if(isset($_GET['formfactor'])) {
-			\OC::$session->set('formfactor', $_GET['formfactor']);
-		}
-		$formfactor = \OC::$session->get('formfactor');
-		if($formfactor==='default') {
-			$fext='';
-		}elseif($formfactor==='mobile') {
-			$fext='.mobile';
-		}elseif($formfactor==='tablet') {
-			$fext='.tablet';
-		}elseif($formfactor==='standalone') {
-			$fext='.standalone';
-		}else{
-			$fext='';
-		}
-		return $fext;
-	}
+			OC_Util::addStyle("tooltip",null,true);
+			OC_Util::addStyle('jquery-ui-fixes',null,true);
+			OC_Util::addVendorStyle('jquery-ui/themes/base/jquery-ui',null,true);
+			OC_Util::addStyle("multiselect",null,true);
+			OC_Util::addStyle("fixes",null,true);
+			OC_Util::addStyle("global",null,true);
+			OC_Util::addStyle("apps",null,true);
+			OC_Util::addStyle("fonts",null,true);
+			OC_Util::addStyle("icons",null,true);
+			OC_Util::addStyle("mobile",null,true);
+			OC_Util::addStyle("header",null,true);
+			OC_Util::addStyle("inputs",null,true);
+			OC_Util::addStyle("styles",null,true);
 
+			// avatars
+			if (\OC::$server->getSystemConfig()->getValue('enable_avatars', true) === true) {
+				\OC_Util::addScript('jquery.avatar', null, true);
+				\OC_Util::addScript('placeholder', null, true);
+			}
+
+			OC_Util::addScript('oc-backbone', null, true);
+			OC_Util::addVendorScript('core', 'backbone/backbone', true);
+			OC_Util::addVendorScript('snapjs/dist/latest/snap', null, true);
+			OC_Util::addScript('mimetypelist', null, true);
+			OC_Util::addScript('mimetype', null, true);
+			OC_Util::addScript("apps", null, true);
+			OC_Util::addScript("oc-requesttoken", null, true);
+			OC_Util::addScript('search', 'search', true);
+			OC_Util::addScript("config", null, true);
+			OC_Util::addScript("eventsource", null, true);
+			OC_Util::addScript("octemplate", null, true);
+			OC_Util::addTranslations("core", null, true);
+			OC_Util::addScript("l10n", null, true);
+			OC_Util::addScript("js", null, true);
+			OC_Util::addScript("oc-dialogs", null, true);
+			OC_Util::addScript("jquery.ocdialog", null, true);
+			OC_Util::addStyle("jquery.ocdialog");
+			OC_Util::addScript("compatibility", null, true);
+			OC_Util::addScript("placeholders", null, true);
+			OC_Util::addScript('files/fileinfo');
+			OC_Util::addScript('files/client');
+
+			// Add the stuff we need always
+			// following logic will import all vendor libraries that are
+			// specified in core/js/core.json
+			$fileContent = file_get_contents(OC::$SERVERROOT . '/core/js/core.json');
+			if($fileContent !== false) {
+				$coreDependencies = json_decode($fileContent, true);
+				foreach(array_reverse($coreDependencies['vendor']) as $vendorLibrary) {
+					// remove trailing ".js" as addVendorScript will append it
+					OC_Util::addVendorScript(
+							substr($vendorLibrary, 0, strlen($vendorLibrary) - 3),null,true);
+				}
+			} else {
+				throw new \Exception('Cannot read core/js/core.json');
+			}
+
+			if (\OC::$server->getRequest()->isUserAgent([\OC\AppFramework\Http\Request::USER_AGENT_IE])) {
+				// polyfill for btoa/atob for IE friends
+				OC_Util::addVendorScript('base64/base64');
+				// shim for the davclient.js library
+				\OCP\Util::addScript('files/iedavclient');
+			}
+
+			self::$initTemplateEngineFirstRun = false;
+		}
+	
+	}
+	
+	
 	/**
-	 * @brief find the template with the given name
+	 * find the template with the given name
 	 * @param string $name of the template file (without suffix)
 	 *
-	 * Will select the template file for the selected theme and formfactor.
+	 * Will select the template file for the selected theme.
 	 * Checking all the possible locations.
 	 * @param string $theme
 	 * @param string $app
-	 * @param string $fext
+	 * @return array
 	 */
-	protected function findTemplate($theme, $app, $name, $fext) {
+	protected function findTemplate($theme, $app, $name) {
 		// Check if it is a app template or not.
 		if( $app !== '' ) {
 			$dirs = $this->getAppTemplateDirs($theme, $app, OC::$SERVERROOT, OC_App::getAppPath($app));
 		} else {
 			$dirs = $this->getCoreTemplateDirs($theme, OC::$SERVERROOT);
 		}
-		$locator = new \OC\Template\TemplateFileLocator( $fext, $dirs );
+		$locator = new \OC\Template\TemplateFileLocator( $dirs );
 		$template = $locator->find($name);
 		$path = $locator->getPath();
 		return array($path, $template);
 	}
 
 	/**
-	 * @brief Add a custom element to the header
+	 * Add a custom element to the header
 	 * @param string $tag tag name of the element
 	 * @param array $attributes array of attributes for the element
-	 * @param string $text the text content for the element
+	 * @param string $text the text content for the element. If $text is null then the
+	 * element will be written as empty element. So use "" to get a closing tag.
 	 */
-	public function addHeader( $tag, $attributes, $text='') {
-		$this->headers[]=array('tag'=>$tag,'attributes'=>$attributes, 'text'=>$text);
+	public function addHeader($tag, $attributes, $text=null) {
+		$this->headers[]= array(
+			'tag' => $tag,
+			'attributes' => $attributes,
+			'text' => $text
+		);
 	}
 
 	/**
-	 * @brief Process the template
+	 * Process the template
 	 * @return boolean|string
 	 *
-	 * This function process the template. If $this->renderas is set, it
+	 * This function process the template. If $this->renderAs is set, it
 	 * will produce a full page.
 	 */
 	public function fetchPage() {
 		$data = parent::fetchPage();
 
-		if( $this->renderas ) {
-			$page = new OC_TemplateLayout($this->renderas);
+		if( $this->renderAs ) {
+			$page = new \OC\TemplateLayout($this->renderAs, $this->app);
 
 			// Add custom headers
-			$page->assign('headers', $this->headers, false);
+			$headers = '';
 			foreach(OC_Util::$headers as $header) {
-				$page->append('headers', $header);
+				$headers .= '<'.\OCP\Util::sanitizeHTML($header['tag']);
+				foreach($header['attributes'] as $name=>$value) {
+					$headers .= ' '.\OCP\Util::sanitizeHTML($name).'="'.\OCP\Util::sanitizeHTML($value).'"';
+				}
+				if ($header['text'] !== null) {
+					$headers .= '>'.\OCP\Util::sanitizeHTML($header['text']).'</'.\OCP\Util::sanitizeHTML($header['tag']).'>';
+				} else {
+					$headers .= '/>';
+				}
 			}
 
-			$page->assign( "content", $data, false );
+			$page->assign('headers', $headers);
+
+			$page->assign('content', $data);
 			return $page->fetchPage();
 		}
-		else{
-			return $data;
-		}
+
+		return $data;
 	}
 
 	/**
-	 * @brief Include template
+	 * Include template
+	 *
+	 * @param string $file
+	 * @param array|null $additionalParams
 	 * @return string returns content of included template
 	 *
 	 * Includes another template. use <?php echo $this->inc('template'); ?> to
 	 * do this.
 	 */
-	public function inc( $file, $additionalparams = null ) {
-		return $this->load($this->path.$file.'.php', $additionalparams);
+	public function inc( $file, $additionalParams = null ) {
+		return $this->load($this->path.$file.'.php', $additionalParams);
 	}
 
 	/**
-	 * @brief Shortcut to print a simple page for users
+	 * Shortcut to print a simple page for users
 	 * @param string $application The application we render the template for
 	 * @param string $name Name of the template
 	 * @param array $parameters Parameters for the template
@@ -237,7 +278,7 @@ class OC_Template extends \OC\Template\Base {
 	}
 
 	/**
-	 * @brief Shortcut to print a simple page for admins
+	 * Shortcut to print a simple page for admins
 	 * @param string $application The application we render the template for
 	 * @param string $name Name of the template
 	 * @param array $parameters Parameters for the template
@@ -252,10 +293,10 @@ class OC_Template extends \OC\Template\Base {
 	}
 
 	/**
-	 * @brief Shortcut to print a simple page for guests
+	 * Shortcut to print a simple page for guests
 	 * @param string $application The application we render the template for
 	 * @param string $name Name of the template
-	 * @param string $parameters Parameters for the template
+	 * @param array|string $parameters Parameters for the template
 	 * @return bool
 	 */
 	public static function printGuestPage( $application, $name, $parameters = array() ) {
@@ -267,47 +308,122 @@ class OC_Template extends \OC\Template\Base {
 	}
 
 	/**
-		* @brief Print a fatal error page and terminates the script
+		* Print a fatal error page and terminates the script
 		* @param string $error_msg The error message to show
-		* @param string $hint An optional hint message
-		* Warning: All data passed to $hint needs to get sanitized using OC_Util::sanitizeHTML
+		* @param string $hint An optional hint message - needs to be properly escaped
 		*/
 	public static function printErrorPage( $error_msg, $hint = '' ) {
-		$content = new OC_Template( '', 'error', 'error' );
-		$errors = array(array('error' => $error_msg, 'hint' => $hint));
-		$content->assign( 'errors', $errors );
-		$content->printPage();
+		try {
+			$content = new \OC_Template( '', 'error', 'error', false );
+			$errors = array(array('error' => $error_msg, 'hint' => $hint));
+			$content->assign( 'errors', $errors );
+			$content->printPage();
+		} catch (\Exception $e) {
+			$logger = \OC::$server->getLogger();
+			$logger->error("$error_msg $hint", ['app' => 'core']);
+			$logger->logException($e, ['app' => 'core']);
+
+			header(self::getHttpProtocol() . ' 500 Internal Server Error');
+			header('Content-Type: text/plain; charset=utf-8');
+			print("$error_msg $hint");
+		}
 		die();
 	}
-	
+
 	/**
 	 * print error page using Exception details
 	 * @param Exception $exception
 	 */
-	
-	public static function printExceptionErrorPage(Exception $exception) {
-		$error_msg = $exception->getMessage();
-		if ($exception->getCode()) {
-			$error_msg = '['.$exception->getCode().'] '.$error_msg;
+	public static function printExceptionErrorPage($exception) {
+		try {
+			$request = \OC::$server->getRequest();
+			$content = new \OC_Template('', 'exception', 'error', false);
+			$content->assign('errorClass', get_class($exception));
+			$content->assign('errorMsg', $exception->getMessage());
+			$content->assign('errorCode', $exception->getCode());
+			$content->assign('file', $exception->getFile());
+			$content->assign('line', $exception->getLine());
+			$content->assign('trace', $exception->getTraceAsString());
+			$content->assign('debugMode', \OC::$server->getSystemConfig()->getValue('debug', false));
+			$content->assign('remoteAddr', $request->getRemoteAddress());
+			$content->assign('requestID', $request->getId());
+			$content->printPage();
+		} catch (\Exception $e) {
+			$logger = \OC::$server->getLogger();
+			$logger->logException($exception, ['app' => 'core']);
+			$logger->logException($e, ['app' => 'core']);
+
+			header(self::getHttpProtocol() . ' 500 Internal Server Error');
+			header('Content-Type: text/plain; charset=utf-8');
+			print("Internal Server Error\n\n");
+			print("The server encountered an internal error and was unable to complete your request.\n");
+			print("Please contact the server administrator if this error reappears multiple times, please include the technical details below in your report.\n");
+			print("More details can be found in the server log.\n");
 		}
-		if (defined('DEBUG') and DEBUG) {
-			$hint = $exception->getTraceAsString();
-			if (!empty($hint)) {
-				$hint = '<pre>'.$hint.'</pre>';
-			}
-			while (method_exists($exception, 'previous') && $exception = $exception->previous()) {
-				$error_msg .= '<br/>Caused by:' . ' ';
-				if ($exception->getCode()) {
-					$error_msg .= '['.$exception->getCode().'] ';
-				}
-				$error_msg .= $exception->getMessage();
-			};
-		} else {
-			$hint = '';
-			if ($exception instanceof \OC\HintException) {
-				$hint = $exception->getHint();
-			}
-		}
-		self::printErrorPage($error_msg, $hint);
+		die();
 	}
+
+	/**
+	 * This is only here to reduce the dependencies in case of an exception to
+	 * still be able to print a plain error message.
+	 *
+	 * Returns the used HTTP protocol.
+	 *
+	 * @return string HTTP protocol. HTTP/2, HTTP/1.1 or HTTP/1.0.
+	 * @internal Don't use this - use AppFramework\Http\Request->getHttpProtocol instead
+	 */
+	protected static function getHttpProtocol() {
+		$claimedProtocol = strtoupper($_SERVER['SERVER_PROTOCOL']);
+		$validProtocols = [
+			'HTTP/1.0',
+			'HTTP/1.1',
+			'HTTP/2',
+		];
+		if(in_array($claimedProtocol, $validProtocols, true)) {
+			return $claimedProtocol;
+		}
+		return 'HTTP/1.1';
+	}
+
+	/**
+	 * @return bool
+	 */
+	public static function isAssetPipelineEnabled() {
+		try {
+			if (\OCP\Util::needUpgrade()) {
+				// Don't use the compiled asset when we need to do an update
+				return false;
+			}
+		} catch (\Exception $e) {
+			// Catch any exception, because this code is also called when displaying
+			// an exception error page.
+			return false;
+		}
+
+		// asset management enabled?
+		$config = \OC::$server->getConfig();
+		$useAssetPipeline = $config->getSystemValue('asset-pipeline.enabled', false);
+		if (!$useAssetPipeline) {
+			return false;
+		}
+
+		// assets folder exists?
+		$assetDir = $config->getSystemValue('assetdirectory', \OC::$SERVERROOT) . '/assets';
+		if (!is_dir($assetDir)) {
+			if (!mkdir($assetDir)) {
+				\OCP\Util::writeLog('assets',
+					"Folder <$assetDir> does not exist and/or could not be generated.", \OCP\Util::ERROR);
+				return false;
+			}
+		}
+
+		// assets folder can be accessed?
+		if (!touch($assetDir."/.oc")) {
+			\OCP\Util::writeLog('assets',
+				"Folder <$assetDir> could not be accessed.", \OCP\Util::ERROR);
+			return false;
+		}
+		return $useAssetPipeline;
+	}
+
 }

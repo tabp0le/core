@@ -1,25 +1,31 @@
 <?php
-
 /**
-* ownCloud
-*
-* @author Frank Karlitschek
-* @copyright 2012 Frank Karlitschek frank@owncloud.org
-*
-* This library is free software; you can redistribute it and/or
-* modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
-* License as published by the Free Software Foundation; either
-* version 3 of the License, or any later version.
-*
-* This library is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU AFFERO GENERAL PUBLIC LICENSE for more details.
-*
-* You should have received a copy of the GNU Affero General Public
-* License along with this library.  If not, see <http://www.gnu.org/licenses/>.
-*
-*/
+ * @author Arthur Schiwon <blizzz@owncloud.com>
+ * @author Felix Moeller <mail@felixmoeller.de>
+ * @author Lukas Reschke <lukas@owncloud.com>
+ * @author Michael Gapczynski <GapczynskiM@gmail.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ * @author Scrutinizer Auto-Fixer <auto-fixer@scrutinizer-ci.com>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
+ */
 
 /**
  * dummy group backend, does not keep state, only for testing use
@@ -27,11 +33,11 @@
 class OC_Group_Dummy extends OC_Group_Backend {
 	private $groups=array();
 	/**
-	 * @brief Try to create a new group
+	 * Try to create a new group
 	 * @param string $gid The name of the group to create
-	 * @returns true/false
+	 * @return bool
 	 *
-	 * Trys to create a new group. If the group name already exists, false will
+	 * Tries to create a new group. If the group name already exists, false will
 	 * be returned.
 	 */
 	public function createGroup($gid) {
@@ -44,9 +50,9 @@ class OC_Group_Dummy extends OC_Group_Backend {
 	}
 
 	/**
-	 * @brief delete a group
-	 * @param $gid gid of the group to delete
-	 * @returns true/false
+	 * delete a group
+	 * @param string $gid gid of the group to delete
+	 * @return bool
 	 *
 	 * Deletes a group and removes it from the group_user-table
 	 */
@@ -60,10 +66,10 @@ class OC_Group_Dummy extends OC_Group_Backend {
 	}
 
 	/**
-	 * @brief is user in group?
-	 * @param $uid uid of the user
-	 * @param $gid gid of the group
-	 * @returns true/false
+	 * is user in group?
+	 * @param string $uid uid of the user
+	 * @param string $gid gid of the group
+	 * @return bool
 	 *
 	 * Checks whether the user is member of a group or not.
 	 */
@@ -76,10 +82,10 @@ class OC_Group_Dummy extends OC_Group_Backend {
 	}
 
 	/**
-	 * @brief Add a user to a group
-	 * @param $uid Name of the user to add to group
-	 * @param $gid Name of the group in which add the user
-	 * @returns true/false
+	 * Add a user to a group
+	 * @param string $uid Name of the user to add to group
+	 * @param string $gid Name of the group in which add the user
+	 * @return bool
 	 *
 	 * Adds a user to a group.
 	 */
@@ -97,10 +103,10 @@ class OC_Group_Dummy extends OC_Group_Backend {
 	}
 
 	/**
-	 * @brief Removes a user from a group
-	 * @param $uid NameUSER of the user to remove from group
-	 * @param $gid Name of the group from which remove the user
-	 * @returns true/false
+	 * Removes a user from a group
+	 * @param string $uid Name of the user to remove from group
+	 * @param string $gid Name of the group from which remove the user
+	 * @return bool
 	 *
 	 * removes the user from a group.
 	 */
@@ -117,9 +123,9 @@ class OC_Group_Dummy extends OC_Group_Backend {
 	}
 
 	/**
-	 * @brief Get all groups a user belongs to
-	 * @param $uid Name of the user
-	 * @returns array with group names
+	 * Get all groups a user belongs to
+	 * @param string $uid Name of the user
+	 * @return array an array of group names
 	 *
 	 * This function fetches all groups a user belongs to. It does not check
 	 * if the user exists at all.
@@ -136,24 +142,70 @@ class OC_Group_Dummy extends OC_Group_Backend {
 	}
 
 	/**
-	 * @brief get a list of all groups
-	 * @returns array with group names
-	 *
-	 * Returns a list with all groups
+	 * Get a list of all groups
+	 * @param string $search
+	 * @param int $limit
+	 * @param int $offset
+	 * @return array an array of group names
 	 */
 	public function getGroups($search = '', $limit = -1, $offset = 0) {
-		return array_keys($this->groups);
+		if(empty($search)) {
+			return array_keys($this->groups);
+		}
+		$result = array();
+		foreach(array_keys($this->groups) as $group) {
+			if(stripos($group, $search) !== false) {
+				$result[] = $group;
+			}
+		}
+		return $result;
 	}
 
 	/**
-	 * @brief get a list of all users in a group
-	 * @returns array with user ids
+	 * Get a list of all users in a group
+	 * @param string $gid
+	 * @param string $search
+	 * @param int $limit
+	 * @param int $offset
+	 * @return array an array of user IDs
 	 */
 	public function usersInGroup($gid, $search = '', $limit = -1, $offset = 0) {
 		if(isset($this->groups[$gid])) {
-			return $this->groups[$gid];
+			if(empty($search)) {
+				return $this->groups[$gid];
+			}
+			$result = array();
+			foreach($this->groups[$gid] as $user) {
+				if(stripos($user, $search) !== false) {
+					$result[] = $user;
+				}
+			}
+			return $result;
 		}else{
 			return array();
+		}
+	}
+
+	/**
+	 * get the number of all users in a group
+	 * @param string $gid
+	 * @param string $search
+	 * @param int $limit
+	 * @param int $offset
+	 * @return int
+	 */
+	public function countUsersInGroup($gid, $search = '', $limit = -1, $offset = 0) {
+		if(isset($this->groups[$gid])) {
+			if(empty($search)) {
+				return count($this->groups[$gid]);
+			}
+			$count = 0;
+			foreach($this->groups[$gid] as $user) {
+				if(stripos($user, $search) !== false) {
+					$count++;
+				}
+			}
+			return $count;
 		}
 	}
 

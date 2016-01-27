@@ -20,20 +20,33 @@
 *
 */
 
+/**
+ * Class Test_User_Database
+ *
+ * @group DB
+ */
 class Test_User_Database extends Test_User_Backend {
+	/** @var array */
+	private $users;
+
 	public function getUser() {
 		$user = parent::getUser();
 		$this->users[]=$user;
 		return $user;
 	}
-	
-	public function setUp() {
+
+	protected function setUp() {
+		parent::setUp();
 		$this->backend=new OC_User_Database();
 	}
-	
-	public function tearDown() {
+
+	protected function tearDown() {
+		if(!isset($this->users)) {
+			return;
+		}
 		foreach($this->users as $user) {
 			$this->backend->deleteUser($user);
 		}
+		parent::tearDown();
 	}
 }

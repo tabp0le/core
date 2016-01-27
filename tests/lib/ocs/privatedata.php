@@ -20,17 +20,18 @@
  *
  */
 
-class Test_OC_OCS_Privatedata extends PHPUnit_Framework_TestCase
-{
-
+/**
+ * Class Test_OC_OCS_Privatedata
+ *
+ * @group DB
+ */
+class Test_OC_OCS_Privatedata extends \Test\TestCase {
 	private $appKey;
 
-	public function setUp() {
-		\OC::$session->set('user_id', 'user1');
-		$this->appKey = uniqid('app');
-	}
-
-	public function tearDown() {
+	protected function setUp() {
+		parent::setUp();
+		\OC::$server->getSession()->set('user_id', 'user1');
+		$this->appKey = $this->getUniqueID('app');
 	}
 
 	public function testGetEmptyOne() {
@@ -77,6 +78,31 @@ class Test_OC_OCS_Privatedata extends PHPUnit_Framework_TestCase
 		$data = $result->getData();
 		$data = $data[0];
 		$this->assertEquals('updated', $data['value']);
+	}
+
+	public function testSetSameValue() {
+		$_POST = array('value' => 123456789);
+		$params = array('app' => $this->appKey, 'key' => 'k-10');
+		$result = OC_OCS_Privatedata::set($params);
+		$this->assertEquals(100, $result->getStatusCode());
+
+		$result = OC_OCS_Privatedata::get($params);
+		$this->assertOcsResult(1, $result);
+		$data = $result->getData();
+		$data = $data[0];
+		$this->assertEquals('123456789', $data['value']);
+
+		// set the same value again
+		$_POST = array('value' => 123456789);
+		$params = array('app' => $this->appKey, 'key' => 'k-10');
+		$result = OC_OCS_Privatedata::set($params);
+		$this->assertEquals(100, $result->getStatusCode());
+
+		$result = OC_OCS_Privatedata::get($params);
+		$this->assertOcsResult(1, $result);
+		$data = $result->getData();
+		$data = $data[0];
+		$this->assertEquals('123456789', $data['value']);
 	}
 
 	public function testSetMany() {

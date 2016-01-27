@@ -1,6 +1,8 @@
 [class^="icon-"], [class*=" icon-"] {
 	background-repeat: no-repeat;
 	background-position: center;
+	min-width: 16px;
+	min-height: 16px;
 }
 
 
@@ -21,10 +23,8 @@
 .icon-loading-small {
 	background-image: url('../img/loading-small.gif');
 }
-
-.icon-noise {
-	background-image: url('../img/noise.png');
-	background-repeat: repeat;
+.icon-32 {
+	background-size: 32px !important;
 }
 
 
@@ -46,13 +46,11 @@
 .icon-checkmark {
 	background-image: url('../img/actions/checkmark.svg');
 }
-
 .icon-checkmark-white {
 	background-image: url('../img/actions/checkmark-white.svg');
 }
-
-.icon-clock {
-	background-image: url('../img/actions/clock.svg');
+.icon-checkmark-color {
+	background-image: url('../img/actions/checkmark-color.svg');
 }
 
 .icon-close {
@@ -63,7 +61,9 @@
 	background-image: url('../img/actions/confirm.svg');
 }
 
-.icon-delete {
+.icon-delete,
+.icon-delete.no-permission:hover,
+.icon-delete.no-permission:focus {
 	background-image: url('../img/actions/delete.svg');
 }
 .icon-delete:hover,
@@ -71,8 +71,30 @@
 	background-image: url('../img/actions/delete-hover.svg');
 }
 
+.icon-details {
+	background-image: url('../img/actions/details.svg');
+}
+
 .icon-download {
 	background-image: url('../img/actions/download.svg');
+}
+
+.icon-edit {
+	background-image: url('../img/actions/edit.svg');
+}
+
+.icon-error {
+	background-image: url('../img/actions/error.svg');
+}
+.icon-error-white {
+	background-image: url('../img/actions/error-white.svg');
+}
+.icon-error-color {
+	background-image: url('../img/actions/error-color.svg');
+}
+
+.icon-external {
+	background-image: url('../img/actions/external.svg');
 }
 
 .icon-history {
@@ -82,9 +104,8 @@
 .icon-info {
 	background-image: url('../img/actions/info.svg');
 }
-
-.icon-lock {
-	background-image: url('../img/actions/lock.svg');
+.icon-info-white {
+	background-image: url('../img/actions/info-white.svg');
 }
 
 .icon-logout {
@@ -93,6 +114,10 @@
 
 .icon-mail {
 	background-image: url('../img/actions/mail.svg');
+}
+
+.icon-menu {
+	background-image: url('../img/actions/menu.svg');
 }
 
 .icon-more {
@@ -136,6 +161,9 @@
 
 .icon-search {
 	background-image: url('../img/actions/search.svg');
+}
+.icon-search-white {
+	background-image: url('../img/actions/search-white.svg');
 }
 
 .icon-settings {
@@ -222,18 +250,14 @@
 	background-image: url('../img/places/contacts-dark.svg');
 }
 
-.icon-file {
-	background-image: url('../img/places/file.svg');
-}
 .icon-files {
 	background-image: url('../img/places/files.svg');
 }
-.icon-folder {
-	background-image: url('../img/places/folder.svg');
-}
+.icon-file,
 .icon-filetype-text {
 	background-image: url('../img/filetypes/text.svg');
 }
+.icon-folder,
 .icon-filetype-folder {
 	background-image: url('../img/filetypes/folder.svg');
 }

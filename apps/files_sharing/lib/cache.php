@@ -1,25 +1,39 @@
 <?php
 /**
- * ownCloud
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Björn Schießle <schiessle@owncloud.com>
+ * @author Christopher Schäpers <kondou@ts.unde.re>
+ * @author Jörn Friedrich Dreyer <jfd@butonic.de>
+ * @author Michael Gapczynski <GapczynskiM@gmail.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ * @author Roeland Jago Douma <rullzer@owncloud.com>
+ * @author Scrutinizer Auto-Fixer <auto-fixer@scrutinizer-ci.com>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ * @author Vincent Petry <pvince81@owncloud.com>
  *
- * @author Michael Gapczynski
- * @copyright 2012 Michael Gapczynski mtgap@owncloud.com
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
  *
- * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU AFFERO GENERAL PUBLIC LICENSE
- * License as published by the Free Software Foundation; either
- * version 3 of the License, or any later version.
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
  *
- * This library is distributed in the hope that it will be useful,
+ * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU AFFERO GENERAL PUBLIC LICENSE for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
  *
- * You should have received a copy of the GNU Affero General Public
- * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\Files\Cache;
+
+use OC\User\NoUserException;
+use OCP\Files\Cache\ICacheEntry;
 use OCP\Share_Backend_Collection;
 
 /**
@@ -36,21 +50,31 @@ class Shared_Cache extends Cache {
 	 * @param \OC\Files\Storage\Shared $storage
 	 */
 	public function __construct($storage) {
+		parent::__construct($storage);
 		$this->storage = $storage;
 	}
 
 	/**
-	 * @brief Get the source cache of a shared file or folder
+	 * Get the source cache of a shared file or folder
+	 *
 	 * @param string $target Shared target file path
-	 * @return \OC\Files\Cache\Cache
+	 * @return \OC\Files\Cache\Cache|false
 	 */
 	private function getSourceCache($target) {
-		$source = \OC_Share_Backend_File::getSource($target);
+		if ($target === false || $target === $this->storage->getMountPoint()) {
+			$target = '';
+		}
+		$source = \OC_Share_Backend_File::getSource($target, $this->storage->getShare());
 		if (isset($source['path']) && isset($source['fileOwner'])) {
-			\OC\Files\Filesystem::initMountPoints($source['fileOwner']);
-			$mount = \OC\Files\Filesystem::getMountByNumericId($source['storage']);
-			if (is_array($mount)) {
-				$fullPath = $mount[key($mount)]->getMountPoint().$source['path'];
+			try {
+				\OC\Files\Filesystem::initMountPoints($source['fileOwner']);
+			} catch(NoUserException $e) {
+				\OC::$server->getLogger()->logException($e, ['app' => 'files_sharing']);
+				return false;
+			}
+			$mounts = \OC\Files\Filesystem::getMountByNumericId($source['storage']);
+			if (is_array($mounts) and !empty($mounts)) {
+				$fullPath = $mounts[0]->getMountPoint() . $source['path'];
 				list($storage, $internalPath) = \OC\Files\Filesystem::resolvePath($fullPath);
 				if ($storage) {
 					$this->files[$target] = $internalPath;
@@ -75,45 +99,60 @@ class Shared_Cache extends Cache {
 	/**
 	 * get the stored metadata of a file or folder
 	 *
-	 * @param string/int $file
-	 * @return array
+	 * @param string|int $file
+	 * @return ICacheEntry|false
 	 */
 	public function get($file) {
-		if ($file == '') {
-			$data = \OCP\Share::getItemsSharedWith('file', \OC_Share_Backend_File::FORMAT_FILE_APP_ROOT);
-			$etag = \OCP\Config::getUserValue(\OCP\User::getUser(), 'files_sharing', 'etag');
-			if (!isset($etag)) {
-				$etag = $this->storage->getETag('');
-				\OCP\Config::setUserValue(\OCP\User::getUser(), 'files_sharing', 'etag', $etag);
-			}
-			$data['etag'] = $etag;
-			return $data;
-		} else if (is_string($file)) {
-			if ($cache = $this->getSourceCache($file)) {
-				return $cache->get($this->files[$file]);
+		$mimetypeLoader = \OC::$server->getMimeTypeLoader();
+		if (is_string($file)) {
+			$cache = $this->getSourceCache($file);
+			if ($cache) {
+				$data = $cache->get($this->files[$file]);
+				if ($data) {
+					$data['displayname_owner'] = \OC_User::getDisplayName($this->storage->getSharedFrom());
+					$data['path'] = $file;
+					if ($file === '') {
+						$data['is_share_mount_point'] = true;
+					}
+					$data['uid_owner'] = $this->storage->getOwner($file);
+					if (isset($data['permissions'])) {
+						$data['permissions'] &= $this->storage->getPermissions($file);
+					} else {
+						$data['permissions'] = $this->storage->getPermissions($file);
+					}
+				}
+				return $data;
 			}
 		} else {
-			$query = \OC_DB::prepare(
+			$sourceId = $file;
+			// if we are at the root of the mount point we want to return the
+			// cache information for the source item
+			if (!is_int($sourceId) || $sourceId === 0) {
+				$sourceId = $this->storage->getSourceId();
+			}
+			$query = \OCP\DB::prepare(
 				'SELECT `fileid`, `storage`, `path`, `parent`, `name`, `mimetype`, `mimepart`,'
-				.' `size`, `mtime`, `encrypted`, `unencrypted_size`'
-				.' FROM `*PREFIX*filecache` WHERE `fileid` = ?');
-			$result = $query->execute(array($file));
+				. ' `size`, `mtime`, `encrypted`, `storage_mtime`, `etag`, `permissions`'
+				. ' FROM `*PREFIX*filecache` WHERE `fileid` = ?');
+			$result = $query->execute(array($sourceId));
 			$data = $result->fetchRow();
 			$data['fileid'] = (int)$data['fileid'];
 			$data['mtime'] = (int)$data['mtime'];
 			$data['storage_mtime'] = (int)$data['storage_mtime'];
 			$data['encrypted'] = (bool)$data['encrypted'];
-			$data['mimetype'] = $this->getMimetype($data['mimetype']);
-			$data['mimepart'] = $this->getMimetype($data['mimepart']);
+			$data['mimetype'] = $mimetypeLoader->getMimetypeById($data['mimetype']);
+			$data['mimepart'] = $mimetypeLoader->getMimetypeById($data['mimepart']);
 			if ($data['storage_mtime'] === 0) {
 				$data['storage_mtime'] = $data['mtime'];
 			}
-			if ($data['encrypted'] or ($data['unencrypted_size'] > 0 and $data['mimetype'] === 'httpd/unix-directory')) {
-				$data['encrypted_size'] = (int)$data['size'];
-				$data['size'] = (int)$data['unencrypted_size'];
-			} else {
-				$data['size'] = (int)$data['size'];
+			$data['size'] = (int)$data['size'];
+			$data['permissions'] = (int)$data['permissions'];
+			if (!is_int($file) || $file === 0) {
+				$data['path'] = '';
+				$data['name'] = basename($this->storage->getMountPoint());
+				$data['is_share_mount_point'] = true;
 			}
+			$data['permissions'] &= $this->storage->getPermissions('');
 			return $data;
 		}
 		return false;
@@ -122,32 +161,28 @@ class Shared_Cache extends Cache {
 	/**
 	 * get the metadata of all files stored in $folder
 	 *
-	 * @param string $folder
-	 * @return array
+	 * @param string $folderId
+	 * @return ICacheEntry[]|false
 	 */
-	public function getFolderContents($folder) {
-		if ($folder == '') {
-			$files = \OCP\Share::getItemsSharedWith('file', \OC_Share_Backend_File::FORMAT_GET_FOLDER_CONTENTS);
-			foreach ($files as &$file) {
-				$file['mimetype'] = $this->getMimetype($file['mimetype']);
-				$file['mimepart'] = $this->getMimetype($file['mimepart']);
-				$file['usersPath'] = 'files/Shared/' . ltrim($file['path'], '/');
+	public function getFolderContentsById($folderId) {
+		$cache = $this->getSourceCache('');
+		if ($cache) {
+			$owner = $this->storage->getSharedFrom();
+			$parentPath = $this->getPathById($folderId);
+			if ($parentPath !== '') {
+				$parentPath .= '/';
 			}
-			return $files;
-		} else {
-			$cache = $this->getSourceCache($folder);
-			if ($cache) {
-				$parent = $this->storage->getFile($folder);
-				$sourceFolderContent = $cache->getFolderContents($this->files[$folder]);
-				foreach ($sourceFolderContent as $key => $c) {
-					$sourceFolderContent[$key]['usersPath'] = 'files/Shared/' . $folder . '/' . $c['name'];
-					$sourceFolderContent[$key]['uid_owner'] = $parent['uid_owner'];
-					$sourceFolderContent[$key]['displayname_owner'] = $parent['uid_owner'];
-				}
+			$sourceFolderContent = $cache->getFolderContentsById($folderId);
+			foreach ($sourceFolderContent as &$c) {
+				$c['path'] = ltrim($parentPath . $c['name'], '/');
+				$c['uid_owner'] = $owner;
+				$c['displayname_owner'] = \OC_User::getDisplayName($owner);
+				$c['permissions'] = $c['permissions'] & $this->storage->getPermissions(false);
+			}
 
-				return $sourceFolderContent;
-			}
+			return $sourceFolderContent;
 		}
+
 		return false;
 	}
 
@@ -157,12 +192,11 @@ class Shared_Cache extends Cache {
 	 * @param string $file
 	 * @param array $data
 	 *
-	 * @return int file id
+	 * @return int|false file id
 	 */
 	public function put($file, array $data) {
-		if ($file === '' && isset($data['etag'])) {
-			return \OCP\Config::setUserValue(\OCP\User::getUser(), 'files_sharing', 'etag', $data['etag']);
-		} else if ($cache = $this->getSourceCache($file)) {
+		$file = ($file === false) ? '' : $file;
+		if ($cache = $this->getSourceCache($file)) {
 			return $cache->put($this->files[$file], $data);
 		}
 		return false;
@@ -175,7 +209,11 @@ class Shared_Cache extends Cache {
 	 * @return int
 	 */
 	public function getId($file) {
-		if ($cache = $this->getSourceCache($file)) {
+		if ($file === false) {
+			return $this->storage->getSourceId();
+		}
+		$cache = $this->getSourceCache($file);
+		if ($cache) {
 			return $cache->getId($this->files[$file]);
 		}
 		return -1;
@@ -200,24 +238,22 @@ class Shared_Cache extends Cache {
 	 * @param string $file
 	 */
 	public function remove($file) {
+		$file = ($file === false) ? '' : $file;
 		if ($cache = $this->getSourceCache($file)) {
 			$cache->remove($this->files[$file]);
 		}
 	}
 
 	/**
-	 * Move a file or folder in the cache
+	 * Get the storage id and path needed for a move
 	 *
-	 * @param string $source
-	 * @param string $target
+	 * @param string $path
+	 * @return array [$storageId, $internalPath]
 	 */
-	public function move($source, $target) {
-		if ($cache = $this->getSourceCache($source)) {
-			$file = \OC_Share_Backend_File::getSource($target);
-			if ($file && isset($file['path'])) {
-				$cache->move($this->files[$source], $file['path']);
-			}
-		}
+	protected function getMoveInfo($path) {
+		$cache = $this->getSourceCache($path);
+		$file = \OC_Share_Backend_File::getSource($path, $this->storage->getShare());
+		return [$cache->getNumericStorageId(), $file['path']];
 	}
 
 	/**
@@ -246,35 +282,13 @@ class Shared_Cache extends Cache {
 	 * search for files matching $pattern
 	 *
 	 * @param string $pattern
-	 * @return array of file data
+	 * @return ICacheEntry[] of file data
 	 */
 	public function search($pattern) {
 
-		$where = '`name` LIKE ? AND ';
+		$pattern = trim($pattern, '%');
 
-		// normalize pattern
-		$value = $this->normalize($pattern);
-
-		return $this->searchWithWhere($where, $value);
-
-	}
-
-	/**
-	 * search for files by mimetype
-	 *
-	 * @param string $mimetype
-	 * @return array
-	 */
-	public function searchByMime($mimetype) {
-		$mimepart = null;
-		if (strpos($mimetype, '/') === false) {
-			$mimepart = $mimetype;
-			$mimetype = null;
-		}
-
-		// note: searchWithWhere is currently broken as it doesn't
-		// recurse into subdirs nor returns the correct
-		// file paths, so using getFolderContents() for now
+		$normalizedPattern = $this->normalize($pattern);
 
 		$result = array();
 		$exploreDirs = array('');
@@ -283,16 +297,57 @@ class Shared_Cache extends Cache {
 			$files = $this->getFolderContents($dir);
 			// no results?
 			if (!$files) {
+				// maybe it's a single shared file
+				$file = $this->get('');
+				if ($normalizedPattern === '' || stristr($file['name'], $normalizedPattern) !== false) {
+					$result[] = $file;
+				}
+				continue;
+			}
+			foreach ($files as $file) {
+				if ($normalizedPattern === '' || stristr($file['name'], $normalizedPattern) !== false) {
+					$result[] = $file;
+				}
+				if ($file['mimetype'] === 'httpd/unix-directory') {
+					$exploreDirs[] = ltrim($dir . '/' . $file['name'], '/');
+				}
+			}
+		}
+		return $result;
+
+	}
+
+	/**
+	 * search for files by mimetype
+	 *
+	 * @param string $mimetype
+	 * @return ICacheEntry[]
+	 */
+	public function searchByMime($mimetype) {
+		$mimepart = null;
+		if (strpos($mimetype, '/') === false) {
+			$mimepart = $mimetype;
+			$mimetype = null;
+		}
+
+		$result = array();
+		$exploreDirs = array('');
+		while (count($exploreDirs) > 0) {
+			$dir = array_pop($exploreDirs);
+			$files = $this->getFolderContents($dir);
+			// no results?
+			if (!$files) {
+				// maybe it's a single shared file
+				$file = $this->get('');
+				if (($mimepart && $file['mimepart'] === $mimepart) || ($mimetype && $file['mimetype'] === $mimetype)) {
+					$result[] = $file;
+				}
 				continue;
 			}
 			foreach ($files as $file) {
 				if ($file['mimetype'] === 'httpd/unix-directory') {
 					$exploreDirs[] = ltrim($dir . '/' . $file['name'], '/');
-				}
-				else if (($mimepart && $file['mimepart'] === $mimepart) || ($mimetype && $file['mimetype'] === $mimetype)) {
-					// usersPath not reliable
-					//$file['path'] = $file['usersPath'];
-					$file['path'] = ltrim($dir . '/' . $file['name'], '/');
+				} else if (($mimepart && $file['mimepart'] === $mimepart) || ($mimetype && $file['mimetype'] === $mimetype)) {
 					$result[] = $file;
 				}
 			}
@@ -301,65 +356,90 @@ class Shared_Cache extends Cache {
 	}
 
 	/**
-	 * The maximum number of placeholders that can be used in an SQL query.
-	 * Value MUST be <= 1000 for oracle:
-	 * see ORA-01795 maximum number of expressions in a list is 1000
-	 * FIXME we should get this from doctrine as other DBs allow a lot more placeholders
+	 * Checks whether the given file has the given tag.
+	 *
+	 * @param \OCP\ITags $tagger
+	 * @param array $fileData file data
+	 * @param string $tag tag to check for
+	 * @return boolean true if the given file has the expected tag,
+	 * false otherwise
 	 */
-	const MAX_SQL_CHUNK_SIZE = 1000;
+	private function hasTag($tagger, $fileData, $tag) {
+		$tags = $tagger->getTagsForObjects(array((int)$fileData['fileid']));
+		return (!empty($tags) && in_array($tag, current($tags)));
+	}
 
 	/**
-	 * search for files with a custom where clause and value
-	 * the $wherevalue will be array_merge()d with the file id chunks
+	 * search for files by tag
 	 *
-	 * @param string $sqlwhere
-	 * @param string $wherevalue
-	 * @return array
+	 * @param string|int $tag tag to search for
+	 * @param string $userId owner of the tags
+	 * @return ICacheEntry[] file data
 	 */
-	private function searchWithWhere($sqlwhere, $wherevalue, $chunksize = self::MAX_SQL_CHUNK_SIZE) {
-
-		$ids = $this->getAll();
-
-		$files = array();
-
-		// divide into chunks
-		$chunks = array_chunk($ids, $chunksize);
-
-		foreach ($chunks as $chunk) {
-			$placeholders = join(',', array_fill(0, count($chunk), '?'));
-			$sql = 'SELECT `fileid`, `storage`, `path`, `parent`, `name`, `mimetype`, `mimepart`, `size`, `mtime`,
-					`encrypted`, `unencrypted_size`, `etag`
-					FROM `*PREFIX*filecache` WHERE ' . $sqlwhere . ' `fileid` IN (' . $placeholders . ')';
-
-			$stmt = \OC_DB::prepare($sql);
-
-			$result = $stmt->execute(array_merge(array($wherevalue), $chunk));
-
-			while ($row = $result->fetchRow()) {
-				if (substr($row['path'], 0, 6) === 'files/') {
-					$row['path'] = substr($row['path'], 6); // remove 'files/' from path as it's relative to '/Shared'
+	public function searchByTag($tag, $userId) {
+		// TODO: inject this
+		$tagger = \OC::$server->getTagManager()->load('files', null, null, $userId);
+		$result = array();
+		$exploreDirs = array('');
+		// check if root is tagged
+		$file = $this->get('');
+		if ($this->hasTag($tagger, $file, $tag)) {
+			$result[] = $file;
+		}
+		// FIXME: this is so wrong and unefficient, need to replace with actual DB queries
+		while (count($exploreDirs) > 0) {
+			$dir = array_pop($exploreDirs);
+			$files = $this->getFolderContents($dir);
+			if (!$files) {
+				continue;
+			}
+			foreach ($files as $file) {
+				if ($this->hasTag($tagger, $file, $tag)) {
+					$result[] = $file;
 				}
-				$row['mimetype'] = $this->getMimetype($row['mimetype']);
-				$row['mimepart'] = $this->getMimetype($row['mimepart']);
-				if ($row['encrypted'] or ($row['unencrypted_size'] > 0 and $row['mimetype'] === 'httpd/unix-directory')) {
-					$row['encrypted_size'] = $row['size'];
-					$row['size'] = $row['unencrypted_size'];
-				} else {
-					$row['size'] = $row['size'];
+				if ($file['mimetype'] === 'httpd/unix-directory') {
+					$exploreDirs[] = ltrim($dir . '/' . $file['name'], '/');
 				}
-				$files[] = $row;
 			}
 		}
-		return $files;
+		return $result;
+	}
+
+	/**
+	 * update the folder size and the size of all parent folders
+	 *
+	 * @param string|boolean $path
+	 * @param array $data (optional) meta data of the folder
+	 */
+	public function correctFolderSize($path, $data = null) {
+		$this->calculateFolderSize($path, $data);
+		if ($path !== '') {
+			$parent = dirname($path);
+			if ($parent === '.' or $parent === '/') {
+				$parent = '';
+			}
+			$this->correctFolderSize($parent);
+		} else {
+			// bubble up to source cache
+			$sourceCache = $this->getSourceCache($path);
+			if (isset($this->files[$path])) {
+				$parent = dirname($this->files[$path]);
+				if ($sourceCache) {
+					$sourceCache->correctFolderSize($parent);
+				}
+			}
+		}
 	}
 
 	/**
 	 * get the size of a folder and set it in the cache
 	 *
 	 * @param string $path
+	 * @param array $entry (optional) meta data of the folder
 	 * @return int
 	 */
-	public function calculateFolderSize($path) {
+	public function calculateFolderSize($path, $entry = null) {
+		$path = ($path === false) ? '' : $path;
 		if ($cache = $this->getSourceCache($path)) {
 			return $cache->calculateFolderSize($this->files[$path]);
 		}
@@ -401,4 +481,40 @@ class Shared_Cache extends Cache {
 		return false;
 	}
 
+	/**
+	 * get the path of a file on this storage relative to the mount point by it's id
+	 *
+	 * @param int $id
+	 * @param string $pathEnd (optional) used internally for recursive calls
+	 * @return string|null
+	 */
+	public function getPathById($id, $pathEnd = '') {
+		// direct shares are easy
+		if ($id === $this->storage->getSourceId()) {
+			return ltrim($pathEnd, '/');
+		} else {
+			// if the item is a direct share we try and get the path of the parent and append the name of the item to it
+			list($parent, $name) = $this->getParentInfo($id);
+			if ($parent > 0) {
+				return $this->getPathById($parent, '/' . $name . $pathEnd);
+			} else {
+				return null;
+			}
+		}
+	}
+
+	/**
+	 * @param integer $id
+	 * @return array
+	 */
+	private function getParentInfo($id) {
+		$sql = 'SELECT `parent`, `name` FROM `*PREFIX*filecache` WHERE `fileid` = ?';
+		$query = \OCP\DB::prepare($sql);
+		$result = $query->execute(array($id));
+		if ($row = $result->fetchRow()) {
+			return array((int)$row['parent'], $row['name']);
+		} else {
+			return array(-1, '');
+		}
+	}
 }

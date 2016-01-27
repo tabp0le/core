@@ -1,12 +1,36 @@
 <?php
 /**
- * Copyright (c) 2012 Bart Visscher <bartv@thisnet.nl>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Jörn Friedrich Dreyer <jfd@butonic.de>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Oliver Gasser <oliver.gasser@gmail.com>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ * @author Thomas Müller <thomas.mueller@tmit.eu>
+ * @author Victor Dubiniuk <dubiniuk@owncloud.com>
+ * @author Vincent Petry <pvince81@owncloud.com>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\DB;
+
+use Doctrine\DBAL\Platforms\AbstractPlatform;
+use OCP\IConfig;
 
 class MDB2SchemaReader {
 	/**
@@ -25,13 +49,13 @@ class MDB2SchemaReader {
 	protected $platform;
 
 	/**
-	 * @param \OC\Config $config
+	 * @param \OCP\IConfig $config
 	 * @param \Doctrine\DBAL\Platforms\AbstractPlatform $platform
 	 */
-	public function __construct($config, $platform) {
+	public function __construct(IConfig $config, AbstractPlatform $platform) {
 		$this->platform = $platform;
-		$this->DBNAME = $config->getValue('dbname', 'owncloud');
-		$this->DBTABLEPREFIX = $config->getValue('dbtableprefix', 'oc_');
+		$this->DBNAME = $config->getSystemValue('dbname', 'owncloud');
+		$this->DBTABLEPREFIX = $config->getSystemValue('dbtableprefix', 'oc_');
 	}
 
 	/**
@@ -66,7 +90,7 @@ class MDB2SchemaReader {
 	}
 
 	/**
-	 * @param\Doctrine\DBAL\Schema\Schema $schema
+	 * @param \Doctrine\DBAL\Schema\Schema $schema
 	 * @param \SimpleXMLElement $xml
 	 * @throws \DomainException
 	 */
@@ -82,6 +106,7 @@ class MDB2SchemaReader {
 					$name = str_replace('*dbprefix*', $this->DBTABLEPREFIX, $name);
 					$name = $this->platform->quoteIdentifier($name);
 					$table = $schema->createTable($name);
+					$table->addOption('collate', 'utf8_bin');
 					break;
 				case 'create':
 				case 'overwrite':
@@ -130,7 +155,7 @@ class MDB2SchemaReader {
 	 * @throws \DomainException
 	 */
 	private function loadField($table, $xml) {
-		$options = array();
+		$options = array( 'notnull' => false );
 		foreach ($xml->children() as $child) {
 			/**
 			 * @var \SimpleXMLElement $child
@@ -289,6 +314,9 @@ class MDB2SchemaReader {
 		}
 		if (!empty($fields)) {
 			if (isset($primary) && $primary) {
+				if ($table->hasPrimaryKey()) {
+					return;
+				}
 				$table->setPrimaryKey($fields, $name);
 			} else {
 				if (isset($unique) && $unique) {
@@ -303,7 +331,7 @@ class MDB2SchemaReader {
 	}
 
 	/**
-	 * @param \SimpleXMLElement | string $xml
+	 * @param \SimpleXMLElement|string $xml
 	 * @return bool
 	 */
 	private function asBool($xml) {

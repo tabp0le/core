@@ -1,15 +1,35 @@
 <?php
-
 /**
- * Copyright (c) 2013 Robin Appelman <icewind@owncloud.com>
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Arthur Schiwon <blizzz@owncloud.com>
+ * @author Bart Visscher <bartv@thisnet.nl>
+ * @author Joas Schilling <nickvergessen@owncloud.com>
+ * @author Lukas Reschke <lukas@owncloud.com>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin Appelman <icewind@owncloud.com>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OC\Group;
 
-class Group {
+use OCP\IGroup;
+
+class Group implements IGroup {
 	/**
 	 * @var string $id
 	 */
@@ -26,7 +46,7 @@ class Group {
 	private $usersLoaded;
 
 	/**
-	 * @var \OC_Group_Backend[] | \OC_Group_Database[] $backend
+	 * @var \OC_Group_Backend[]|\OC_Group_Database[] $backend
 	 */
 	private $backends;
 
@@ -116,7 +136,7 @@ class Group {
 			$this->emitter->emit('\OC\Group', 'preAddUser', array($this, $user));
 		}
 		foreach ($this->backends as $backend) {
-			if ($backend->implementsActions(OC_GROUP_BACKEND_ADD_TO_GROUP)) {
+			if ($backend->implementsActions(\OC_Group_Backend::ADD_TO_GROUP)) {
 				$backend->addToGroup($user->getUID(), $this->gid);
 				if ($this->users) {
 					$this->users[$user->getUID()] = $user;
@@ -140,7 +160,7 @@ class Group {
 			$this->emitter->emit('\OC\Group', 'preRemoveUser', array($this, $user));
 		}
 		foreach ($this->backends as $backend) {
-			if ($backend->implementsActions(OC_GROUP_BACKEND_REMOVE_FROM_GOUP) and $backend->inGroup($user->getUID(), $this->gid)) {
+			if ($backend->implementsActions(\OC_Group_Backend::REMOVE_FROM_GOUP) and $backend->inGroup($user->getUID(), $this->gid)) {
 				$backend->removeFromGroup($user->getUID(), $this->gid);
 				$result = true;
 			}
@@ -172,18 +192,33 @@ class Group {
 		$users = array();
 		foreach ($this->backends as $backend) {
 			$userIds = $backend->usersInGroup($this->gid, $search, $limit, $offset);
-			if (!is_null($limit)) {
-				$limit -= count($userIds);
-			}
-			if (!is_null($offset)) {
-				$offset -= count($userIds);
-			}
 			$users += $this->getVerifiedUsers($userIds);
 			if (!is_null($limit) and $limit <= 0) {
 				return array_values($users);
 			}
 		}
 		return array_values($users);
+	}
+
+	/**
+	 * returns the number of users matching the search string
+	 *
+	 * @param string $search
+	 * @return int|bool
+	 */
+	public function count($search = '') {
+		$users = false;
+		foreach ($this->backends as $backend) {
+			if($backend->implementsActions(\OC_Group_Backend::COUNT_USERS)) {
+				if($users === false) {
+					//we could directly add to a bool variable, but this would
+					//be ugly
+					$users = 0;
+				}
+				$users += $backend->countUsersInGroup($this->gid, $search);
+			}
+		}
+		return $users;
 	}
 
 	/**
@@ -197,17 +232,7 @@ class Group {
 	public function searchDisplayName($search, $limit = null, $offset = null) {
 		$users = array();
 		foreach ($this->backends as $backend) {
-			if ($backend->implementsActions(OC_GROUP_BACKEND_GET_DISPLAYNAME)) {
-				$userIds = array_keys($backend->displayNamesInGroup($this->gid, $search, $limit, $offset));
-			} else {
-				$userIds = $backend->usersInGroup($this->gid, $search, $limit, $offset);
-			}
-			if (!is_null($limit)) {
-				$limit -= count($userIds);
-			}
-			if (!is_null($offset)) {
-				$offset -= count($userIds);
-			}
+			$userIds = $backend->usersInGroup($this->gid, $search, $limit, $offset);
 			$users = $this->getVerifiedUsers($userIds);
 			if (!is_null($limit) and $limit <= 0) {
 				return array_values($users);
@@ -222,12 +247,17 @@ class Group {
 	 * @return bool
 	 */
 	public function delete() {
+		// Prevent users from deleting group admin
+		if ($this->getGID() === 'admin') {
+			return false;
+		}
+
 		$result = false;
 		if ($this->emitter) {
 			$this->emitter->emit('\OC\Group', 'preDelete', array($this));
 		}
 		foreach ($this->backends as $backend) {
-			if ($backend->implementsActions(OC_GROUP_BACKEND_DELETE_GROUP)) {
+			if ($backend->implementsActions(\OC_Group_Backend::DELETE_GROUP)) {
 				$result = true;
 				$backend->deleteGroup($this->gid);
 			}
@@ -239,7 +269,7 @@ class Group {
 	}
 
 	/**
-	 * @brief returns all the Users from an array that really exists
+	 * returns all the Users from an array that really exists
 	 * @param string[] $userIds an array containing user IDs
 	 * @return \OC\User\User[] an Array with the userId as Key and \OC\User\User as value
 	 */

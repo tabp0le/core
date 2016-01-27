@@ -20,10 +20,10 @@
  *
  */
 
-class Test_ErrorHandler extends \PHPUnit_Framework_TestCase {
+class Test_ErrorHandler extends \Test\TestCase {
 
 	/**
-	 * @brief provide username, password combinations for testRemovePassword
+	 * provide username, password combinations for testRemovePassword
 	 * @return array
 	 */
 	function passwordProvider() {
@@ -53,7 +53,7 @@ class Test_ErrorHandler extends \PHPUnit_Framework_TestCase {
 }
 
 /**
- * @brief dummy class to access protected methods of \OC\Log\ErrorHandler
+ * dummy class to access protected methods of \OC\Log\ErrorHandler
  */
 class TestableErrorHandler extends \OC\Log\ErrorHandler {
 

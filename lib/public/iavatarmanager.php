@@ -1,23 +1,42 @@
 <?php
 /**
- * This file is licensed under the Affero General Public License version 3 or
- * later.
- * See the COPYING-README file.
+ * @author Arthur Schiwon <blizzz@owncloud.com>
+ * @author Christopher Schäpers <kondou@ts.unde.re>
+ * @author Morris Jobke <hey@morrisjobke.de>
+ * @author Robin McCorkell <robin@mccorkell.me.uk>
+ *
+ * @copyright Copyright (c) 2016, ownCloud, Inc.
+ * @license AGPL-3.0
+ *
+ * This code is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License, version 3,
+ * as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License, version 3,
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ *
  */
 
 namespace OCP;
 
 /**
  * This class provides avatar functionality
+ * @since 6.0.0
  */
 
 interface IAvatarManager {
 
 	/**
-	 * @brief return a user specific instance of \OCP\IAvatar
+	 * return a user specific instance of \OCP\IAvatar
 	 * @see \OCP\IAvatar
-	 * @param $user string the ownCloud user id
+	 * @param string $user the ownCloud user id
 	 * @return \OCP\IAvatar
+	 * @since 6.0.0
 	 */
-	function getAvatar($user);
+	public function getAvatar($user);
 }

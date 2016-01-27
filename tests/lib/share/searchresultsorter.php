@@ -19,7 +19,7 @@
 * License along with this library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-class Test_Share_Search extends \PHPUnit_Framework_TestCase {
+class Test_Share_Search extends \Test\TestCase {
 	public function testSort() {
 		$search = 'lin';
 		$sorter = new \OC\Share\SearchResultSorter($search, 'foobar');
@@ -36,12 +36,5 @@ class Test_Share_Search extends \PHPUnit_Framework_TestCase {
 		$this->assertTrue($result[1]['foobar'] === 'linux');
 		$this->assertTrue($result[2]['foobar'] === 'Bicyclerepairwoman');
 		$this->assertTrue($result[3]['foobar'] === 'woot');
-	}
-
-	/**
-     * @expectedException PHPUnit_Framework_Error
-     */
-	public function testSortWrongLog() {
-		$sorter = new \OC\Share\SearchResultSorter('foo', 'bar', 'UTF-8', 'foobar');
 	}
 }
